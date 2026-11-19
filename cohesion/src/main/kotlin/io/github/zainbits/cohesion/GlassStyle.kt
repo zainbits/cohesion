@@ -75,12 +75,15 @@ public data class GlassStyle(
          * @param tint strength of that veil at clarity 0 (0 to 1); null = the default for the theme
          *   ([DEFAULT_TINT_LIGHT] or [DEFAULT_TINT_DARK]). More clarity adds to it.
          * @param lightDistance see [GlassStyle.lightDistance].
+         * @param edgeLight how bright the light border is (0 to 1): the lit rim, and with it the outline;
+         *   null = the default for [clarity].
          */
         public fun forClarity(
             clarity: Float,
             dark: Boolean,
             tint: Float? = null,
             lightDistance: Float = DEFAULT_LIGHT_DISTANCE,
+            edgeLight: Float? = null,
         ): GlassStyle {
             val c = clarity.coerceIn(0f, 1f)
             val tintColor = if (dark) Color(0xFF101012) else Color(0xFFFFFFFF)
@@ -88,6 +91,10 @@ public data class GlassStyle(
             val r = (c / 0.15f).coerceAtMost(1f)
             // Even clear glass keeps a light veil of the theme's tint (whitish on light, dark on dark),
             // so it reads as glass and text on it stays legible.
+            val defaultRim = lerp(0.9f, 0.45f, c)
+            val rim = edgeLight?.coerceIn(0f, 1f) ?: defaultRim
+            // The outline follows the light border, so turning it down softens the whole edge.
+            val edgeScale = if (defaultRim > 0f) (rim / defaultRim).coerceIn(0f, 2f) else 1f
             val veil = (tint ?: if (dark) DEFAULT_TINT_DARK else DEFAULT_TINT_LIGHT).coerceIn(0f, 1f)
             // Blur rises with tint until the glass is nearly opaque, then switches off:
             // a fully tinted surface hides the content anyway, so the pass would be wasted.
@@ -101,12 +108,12 @@ public data class GlassStyle(
                 saturation = 1f + 0.6f * r - 0.5f * c,
                 tint = tintColor,
                 tintAlpha = if (c >= 0.97f) 1f else (veil + 0.80f * c * c).coerceAtMost(1f),
-                rim = lerp(0.9f, 0.45f, c),
+                rim = rim,
                 rimWidth = 1.5.dp,
                 lightAngle = -120f,
                 dispersion = 0f,
                 edge = if (dark) Color.White else Color.Black,
-                edgeAlpha = if (dark) 0.24f else 0.22f,
+                edgeAlpha = (if (dark) 0.24f else 0.22f) * edgeScale,
                 edgeWidth = 1.5.dp,
                 reflection = lerp(0.55f, 0.15f, c),
                 evenLight = 1f,

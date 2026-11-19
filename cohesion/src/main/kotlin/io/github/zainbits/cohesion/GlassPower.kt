@@ -62,6 +62,7 @@ public fun rememberAdaptiveGlassMode(preferred: GlassMode = GlassMode.Full): Gla
  * @param clarity the iOS 27-style slider: 0 = ultra-clear, 1 = fully tinted.
  * @param tint strength of the theme's veil on clear glass; null = the theme's default. See [GlassStyle.forClarity].
  * @param lightDistance how far away the corner lights are. See [GlassStyle.lightDistance].
+ * @param edgeLight how bright the light border is; null = the default. See [GlassStyle.forClarity].
  */
 @Composable
 public fun ProvideGlass(
@@ -70,9 +71,12 @@ public fun ProvideGlass(
     mode: GlassMode = rememberAdaptiveGlassMode(),
     tint: Float? = null,
     lightDistance: Float = GlassStyle.DEFAULT_LIGHT_DISTANCE,
+    edgeLight: Float? = null,
     content: @Composable () -> Unit,
 ) {
-    val style = remember(clarity, dark, tint, lightDistance) { GlassStyle.forClarity(clarity, dark, tint, lightDistance) }
+    val style = remember(clarity, dark, tint, lightDistance, edgeLight) {
+        GlassStyle.forClarity(clarity, dark, tint, lightDistance, edgeLight)
+    }
     CompositionLocalProvider(
         LocalGlassStyle provides style,
         LocalGlassMode provides mode,
