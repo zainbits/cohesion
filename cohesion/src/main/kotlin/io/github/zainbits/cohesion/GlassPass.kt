@@ -36,6 +36,7 @@ import kotlin.math.sin
  * Owners call [attach]/[detach] from their node's lifecycle and [draw] from its draw.
  */
 public class GlassPass(private val scene: GlassScene) {
+    private var attached = false
     private var layer: GraphicsLayer? = null
     private var blurLayer: GraphicsLayer? = null
 
@@ -52,8 +53,9 @@ public class GlassPass(private val scene: GlassScene) {
     private var recordedSize = IntSize.Zero
     private var recordedSource: GraphicsLayer? = null
 
+    /** The offscreen layer is created on the first glass draw, so a pass that only ever draws Solid holds none. */
     public fun attach(context: GraphicsContext) {
-        layer = context.createGraphicsLayer().apply { clip = true }
+        attached = true
     }
 
     public fun detach(context: GraphicsContext) {
@@ -61,6 +63,7 @@ public class GlassPass(private val scene: GlassScene) {
         blurLayer?.let { context.releaseGraphicsLayer(it) }
         layer = null
         blurLayer = null
+        attached = false
         effectVersion = -1
         effectStyle = null
         recordedOrigin = Offset.Unspecified
@@ -80,10 +83,13 @@ public class GlassPass(private val scene: GlassScene) {
         mode: GlassMode,
         margin: Dp = 0.dp,
     ) {
-        val layer = layer
-        if (mode == GlassMode.Solid || layer == null || offset == Offset.Unspecified) {
+        if (mode == GlassMode.Solid || !attached || offset == Offset.Unspecified) {
             drawSolid(style, margin)
             return
+        }
+        val layer = this@GlassPass.layer ?: context.createGraphicsLayer().also {
+            it.clip = true
+            this@GlassPass.layer = it
         }
         val tracing = Trace.isEnabled()
         if (tracing) Trace.beginSection("Cohesion#glass")
@@ -181,15 +187,27 @@ public class GlassPass(private val scene: GlassScene) {
         if (m == 0) drawLayer(layer) else translate(-mf, -mf) { drawLayer(layer) }
     }
 
-    private fun DrawScope.drawSolid(style: GlassStyle, margin: Dp) {
+    /**
+     * Draws the scene as a flat shape in [GlassStyle.solidColor] (the accent in [GlassStyle.accentSolidColor]):
+     * no backdrop and no offscreen pass. The scene's merging and stretching still apply, so pieces with no glass
+     * behind them can still flow into each other like liquid. [draw] uses it in [GlassMode.Solid].
+     */
+    public fun DrawScope.drawSolid(style: GlassStyle, margin: Dp = 0.dp) {
         val shader = Shaders.solid(scene)
         shader.setColorUniform("uGSolid", style.solidColor.toArgb())
         val accent = if (style.accentSolidColor.isSpecified) style.accentSolidColor else style.solidColor
         shader.setColorUniform("uGSolid2", accent.toArgb())
         scene.applyUniforms(shader)
+        val brush = solidBrush?.takeIf { solidShader === shader } ?: ShaderBrush(shader).also {
+            solidBrush = it
+            solidShader = shader
+        }
         val m = margin.toPx()
-        drawRect(ShaderBrush(shader), topLeft = Offset(-m, -m), size = Size(size.width + 2 * m, size.height + 2 * m))
+        drawRect(brush, topLeft = Offset(-m, -m), size = Size(size.width + 2 * m, size.height + 2 * m))
     }
+
+    private var solidBrush: ShaderBrush? = null
+    private var solidShader: RuntimeShader? = null
 
     private fun DrawScope.applyGlassUniforms(shader: RuntimeShader, size: IntSize, origin: Float, style: GlassStyle, tapBlur: Float) {
         shader.setFloatUniform("uGSize", size.width.toFloat(), size.height.toFloat())
