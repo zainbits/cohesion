@@ -121,8 +121,8 @@ public data class GlassStyle(
         /** The veil of clear glass on a dark theme. */
         public const val DEFAULT_TINT_DARK: Float = 0.40f
 
-        /** How far away the corner lights are by default. */
-        public const val DEFAULT_LIGHT_DISTANCE: Float = 0.7f
+        /** How far away the corner lights are by default: far, so the light is the same on every side. */
+        public const val DEFAULT_LIGHT_DISTANCE: Float = 1f
 
         private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
     }

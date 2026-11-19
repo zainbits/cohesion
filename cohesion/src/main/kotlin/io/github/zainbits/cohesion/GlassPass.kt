@@ -374,7 +374,8 @@ half4 main(float2 xy) {
     float lit = pow(max(facing, 0.0), 1.5) + (1.0 - uGEven) * 0.45 * pow(max(-facing, 0.0), 1.5);
     float rim = clamp(1.0 - inside / uGRimWidth, 0.0, 1.0);
     float sq = clamp(1.0 - inside / (uGRimWidth * 2.5), 0.0, 1.0);
-    float spec = pow(max(facing, 0.0), 10.0) * sq * sq;
+    // The sharp highlight: one light gives a hot spot; with even light it must not pick out the corners.
+    float spec = pow(max(facing, 0.0), mix(10.0, 1.0, uGEven)) * sq * sq;
     float glow = uGRim * (rim * lit + 0.8 * spec + 0.10 * t * t);
     c.rgb = c.rgb + (c.a - c.rgb) * half(clamp(glow, 0.0, 1.0));
 
