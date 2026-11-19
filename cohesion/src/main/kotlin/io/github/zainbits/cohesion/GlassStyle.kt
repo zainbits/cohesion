@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.lerp
  *   light theme, light on a dark theme. It reads as the glass bending at its border.
  * @property edgeAlpha strength of [edge]; 0 = no outline.
  * @property edgeWidth width of the outline.
+ * @property reflection how much the border mirrors what lies just outside the glass; 0 = none.
  * @property dispersion colour fringing at the edge (costs two extra samples per pixel when > 0).
  * @property solidColor what is drawn instead of glass in [GlassMode.Solid].
  * @property accentTint tint where a scene marks an accent (for example a selected tab);
@@ -47,6 +48,7 @@ public data class GlassStyle(
     val edge: Color = Color.Black,
     val edgeAlpha: Float = 0f,
     val edgeWidth: Dp = 0.8.dp,
+    val reflection: Float = 0f,
     val solidColor: Color = Color(0xF2F4F4F6),
     val accentTint: Color = Color.Unspecified,
     val accentTintAlpha: Float = 0.35f,
@@ -91,7 +93,8 @@ public data class GlassStyle(
                 dispersion = 0f,
                 edge = if (dark) Color.White else Color.Black,
                 edgeAlpha = if (dark) 0.24f else 0.22f,
-                edgeWidth = 1.dp,
+                edgeWidth = 1.5.dp,
+                reflection = lerp(0.55f, 0.15f, c),
                 solidColor = lerp(tint, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }

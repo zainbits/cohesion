@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
@@ -197,8 +198,7 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setColorUniform("uGSolid", style.solidColor.toArgb())
         val accent = if (style.accentSolidColor.isSpecified) style.accentSolidColor else style.solidColor
         shader.setColorUniform("uGSolid2", accent.toArgb())
-        shader.setColorUniform("uGEdge", style.edge.copy(alpha = style.edgeAlpha.coerceIn(0f, 1f)).toArgb())
-        shader.setFloatUniform("uGEdgeWidth", style.edgeWidth.toPx().coerceAtLeast(0.5f))
+        setEdgeUniforms(shader, style)
         scene.applyUniforms(shader)
         val brush = solidBrush?.takeIf { solidShader === shader } ?: ShaderBrush(shader).also {
             solidBrush = it
@@ -206,6 +206,15 @@ public class GlassPass(private val scene: GlassScene) {
         }
         val m = margin.toPx()
         drawRect(brush, topLeft = Offset(-m, -m), size = Size(size.width + 2 * m, size.height + 2 * m))
+    }
+
+    /** The edge shading: its colour, width, and the light it turns with (a light edge faces it, a dark one turns away). */
+    private fun DrawScope.setEdgeUniforms(shader: RuntimeShader, style: GlassStyle) {
+        shader.setColorUniform("uGEdge", style.edge.copy(alpha = style.edgeAlpha.coerceIn(0f, 1f)).toArgb())
+        shader.setFloatUniform("uGEdgeWidth", style.edgeWidth.toPx().coerceAtLeast(0.5f))
+        val a = Math.toRadians(style.lightAngle.toDouble())
+        val toward = if (style.edge.luminance() > 0.5f) 1f else -1f
+        shader.setFloatUniform("uGEdgeLight", toward * cos(a).toFloat(), toward * sin(a).toFloat())
     }
 
     private var solidBrush: ShaderBrush? = null
@@ -229,8 +238,8 @@ public class GlassPass(private val scene: GlassScene) {
         val a = Math.toRadians(style.lightAngle.toDouble())
         shader.setFloatUniform("uGLight", cos(a).toFloat(), sin(a).toFloat())
         shader.setFloatUniform("uGDispersion", style.dispersion)
-        shader.setColorUniform("uGEdge", style.edge.copy(alpha = style.edgeAlpha.coerceIn(0f, 1f)).toArgb())
-        shader.setFloatUniform("uGEdgeWidth", style.edgeWidth.toPx().coerceAtLeast(0.5f))
+        setEdgeUniforms(shader, style)
+        shader.setFloatUniform("uGReflect", style.reflection.coerceIn(0f, 1f))
         shader.setFloatUniform("uGBlur", tapBlur)
         shader.setFloatUniform("uGTaps", CohesionDebug.blurTaps.coerceIn(4, 32).toFloat())
     }
@@ -268,6 +277,8 @@ uniform float2 uGLight;
 uniform float uGDispersion;
 layout(color) uniform half4 uGEdge;
 uniform float uGEdgeWidth;
+uniform float2 uGEdgeLight;
+uniform float uGReflect;
 uniform float uGBlur;
 uniform float uGTaps;
 
@@ -300,6 +311,14 @@ half4 blurAt(float2 s) {
 """
 
 private const val GLASS_MAIN = """
+void edgeShade(inout half4 c, float inside, float2 n) {
+    float q = clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0);
+    // All the way round, strongest on one side of the light; concentrated at the very border.
+    float side = mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight)));
+    half e = half(q * q * side) * uGEdge.a;
+    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+}
+
 half4 main(float2 xy) {
     float2 p = xy - uGOrigin;
     float3 sc = scene(p);
@@ -330,16 +349,35 @@ half4 main(float2 xy) {
     c.rgb = mix(c.rgb, tint.rgb, tint.a);
     c.a = mix(c.a, 1.0, tint.a);
 
-    // Light catching the rim: strongest where the edge faces the light, softer opposite.
+    // Reflection: near the border the glass mirrors what lies just outside it (a Fresnel falloff), so its
+    // edge picks up the colours around it instead of reading as a drawn line.
+    float rq = clamp(1.0 - inside / (uGEdgeWidth * 4.0), 0.0, 1.0);
+    if (uGReflect > 0.0 && rq > 0.0) {
+        half4 r = blurAt(clampIn(xy + n * (2.0 * inside + uGEdgeWidth)));
+        half rl = dot(r.rgb, half3(0.2126, 0.7152, 0.0722));
+        r.rgb = clamp(mix(half3(rl), r.rgb, half(1.3)), 0.0, r.a);
+        c = mix(c, r, half(uGReflect * rq * rq));
+    }
+
+    // Light catching the rim: strongest where the edge faces the light, softer opposite, with a sharp
+    // highlight where it faces the light squarely.
     float facing = dot(n, uGLight);
     float lit = pow(max(facing, 0.0), 1.5) + 0.45 * pow(max(-facing, 0.0), 1.5);
     float rim = clamp(1.0 - inside / uGRimWidth, 0.0, 1.0);
-    float glow = uGRim * (rim * lit + 0.10 * t * t);
-    c.rgb = c.rgb + (c.a - c.rgb) * half(glow);
+    float sq = clamp(1.0 - inside / (uGRimWidth * 2.5), 0.0, 1.0);
+    float spec = pow(max(facing, 0.0), 10.0) * sq * sq;
+    float glow = uGRim * (rim * lit + 0.8 * spec + 0.10 * t * t);
+    c.rgb = c.rgb + (c.a - c.rgb) * half(clamp(glow, 0.0, 1.0));
 
-    // The outline: a hairline of uGEdge right at the border, all the way round.
-    half e = half(clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0)) * uGEdge.a;
-    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+    // Edge shading, last so the highlight cannot wash it out on white: the bend at the border darkens it
+    // (lightens it on a dark theme), more on one side of the light, fading inwards. With the highlight just
+    // inside it on the lit side, it reads as a curved, reflective edge rather than a drawn border.
+    edgeShade(c, inside, n);
+
+    // Pebble shading: across the bend the surface tilts, so it catches a soft gradient of the edge colour
+    // on one side (grey away from the light on a light theme, a light sheen toward it on a dark one).
+    half pe = half(t * t * smoothstep(-0.2, 1.0, dot(n, uGEdgeLight)) * 0.45) * uGEdge.a;
+    c = c * (1.0 - pe) + half4(uGEdge.rgb, 1.0) * pe;
 
     return c * half(cover);
 }
@@ -350,15 +388,23 @@ layout(color) uniform half4 uGSolid;
 layout(color) uniform half4 uGSolid2;
 layout(color) uniform half4 uGEdge;
 uniform float uGEdgeWidth;
+uniform float2 uGEdgeLight;
 """
 
 private const val SOLID_MAIN = """
+void edgeShade(inout half4 c, float inside, float2 n) {
+    float q = clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0);
+    // All the way round, strongest on one side of the light; concentrated at the very border.
+    float side = mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight)));
+    half e = half(q * q * side) * uGEdge.a;
+    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+}
+
 half4 main(float2 xy) {
     float3 sc = scene(xy);
     float cover = clamp(0.5 - sc.x, 0.0, 1.0);
     half4 c = mix(uGSolid, uGSolid2, sceneAccent(xy));
-    half e = half(clamp(1.0 + sc.x / uGEdgeWidth, 0.0, 1.0)) * uGEdge.a;
-    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+    edgeShade(c, -sc.x, sc.yz);
     return c * half(cover);
 }
 """
