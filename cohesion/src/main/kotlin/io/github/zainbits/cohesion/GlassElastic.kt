@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter

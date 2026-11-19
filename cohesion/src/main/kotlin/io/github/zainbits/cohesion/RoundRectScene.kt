@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import android.graphics.RuntimeShader
 
@@ -95,8 +95,8 @@ uniform float uRadii[$MAX];
 uniform float uDeform[${MAX * 4}];
 uniform float uMerge;
 uniform float uShapeBand;
-${LiquidAgsl.ROUND_RECT}
-${LiquidAgsl.SMOOTH_UNION}
+${CohesionAgsl.ROUND_RECT}
+${CohesionAgsl.SMOOTH_UNION}
 float3 scene(float2 p) {
     float3 acc = float3(100000.0, 0.0, -1.0);
     for (int i = 0; i < $MAX; i++) {

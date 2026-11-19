@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import android.graphics.RuntimeShader
 
@@ -14,7 +14,7 @@ import android.graphics.RuntimeShader
  * must also define `half sceneAccent(float2 p)` (0..1), which blends the tint toward
  * [GlassStyle.accentTint] (for example a selected tab).
  *
- * Snippets for common outlines are in [LiquidAgsl].
+ * Snippets for common outlines are in [CohesionAgsl].
  */
 public abstract class GlassScene {
     public abstract val agsl: String
@@ -31,7 +31,7 @@ public abstract class GlassScene {
 }
 
 /** AGSL building blocks shared by every scene. */
-public object LiquidAgsl {
+public object CohesionAgsl {
     /**
      * `float3 sdRoundRect(float2 p, float x, float y, float w, float h, float r, float band,
      * float ux, float uy, float st, float sq)`: distance to a rounded rectangle at (x, y) of size

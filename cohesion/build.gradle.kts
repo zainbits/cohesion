@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.zainbits.liquid"
+    namespace = "io.github.zainbits.cohesion"
     compileSdk = 36
 
     defaultConfig {

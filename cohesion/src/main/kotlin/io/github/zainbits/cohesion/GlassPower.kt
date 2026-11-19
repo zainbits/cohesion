@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import android.content.BroadcastReceiver
 import android.content.Context

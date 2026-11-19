@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
@@ -86,7 +86,7 @@ public class GlassPass(private val scene: GlassScene) {
             return
         }
         val tracing = Trace.isEnabled()
-        if (tracing) Trace.beginSection("Liquid#glass")
+        if (tracing) Trace.beginSection("Cohesion#glass")
         try {
             drawPass(context, backdrop.layer, offset, style, mode, margin, layer)
         } finally {
@@ -107,11 +107,11 @@ public class GlassPass(private val scene: GlassScene) {
         val mf = m.toFloat()
         val intSize = IntSize(size.width.toInt() + 2 * m, size.height.toInt() + 2 * m)
         val blurPx = if (mode == GlassMode.NoBlur) 0f else style.blurRadius.toPx()
-        val taps = blurPx >= 0.5f && LiquidDebug.blurMethod == 1
+        val taps = blurPx >= 0.5f && CohesionDebug.blurMethod == 1
         val ds = when {
             blurPx < 0.5f -> 1
-            LiquidDebug.blurDownsample > 0 -> LiquidDebug.blurDownsample
-            taps -> ceil(blurPx / LiquidDebug.blurSpanPx).toInt().coerceIn(1, 8)
+            CohesionDebug.blurDownsample > 0 -> CohesionDebug.blurDownsample
+            taps -> ceil(blurPx / CohesionDebug.blurSpanPx).toInt().coerceIn(1, 8)
             else -> 1
         }
         if (scene.version != effectVersion || intSize != effectSize || density != effectDensity ||
@@ -120,7 +120,7 @@ public class GlassPass(private val scene: GlassScene) {
             val shader = Shaders.glass(scene)
             applyGlassUniforms(shader, intSize, mf, style, if (taps) blurPx else 0f)
             scene.applyUniforms(shader)
-            LiquidDebug.effectBuilds++
+            CohesionDebug.effectBuilds++
             val lens = RenderEffect.createRuntimeShaderEffect(shader, "content")
             val combined = if (blurPx < 0.5f || taps || ds > 1) {
                 lens
@@ -176,7 +176,7 @@ public class GlassPass(private val scene: GlassScene) {
             recordedOrigin = origin
             recordedSize = intSize
             recordedSource = source
-            LiquidDebug.glassRecords++
+            CohesionDebug.glassRecords++
         }
         if (m == 0) drawLayer(layer) else translate(-mf, -mf) { drawLayer(layer) }
     }
@@ -210,7 +210,7 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setFloatUniform("uGLight", cos(a).toFloat(), sin(a).toFloat())
         shader.setFloatUniform("uGDispersion", style.dispersion)
         shader.setFloatUniform("uGBlur", tapBlur)
-        shader.setFloatUniform("uGTaps", LiquidDebug.blurTaps.coerceIn(4, 32).toFloat())
+        shader.setFloatUniform("uGTaps", CohesionDebug.blurTaps.coerceIn(4, 32).toFloat())
     }
 }
 
@@ -251,7 +251,7 @@ float2 clampIn(float2 s) {
     return clamp(s, float2(0.5), uGSize - 0.5);
 }
 
-// Optional single-pass blur (LiquidDebug.blurMethod = 1): Vogel-disk taps with Gaussian weights
+// Optional single-pass blur (CohesionDebug.blurMethod = 1): Vogel-disk taps with Gaussian weights
 // over a small, already smooth copy. Off (uGBlur = 0) when the platform blur is used.
 half4 blurAt(float2 s) {
     if (uGBlur <= 0.0) {

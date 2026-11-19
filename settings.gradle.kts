@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "liquid-core"
-include(":core")
+rootProject.name = "cohesion"
+include(":cohesion")

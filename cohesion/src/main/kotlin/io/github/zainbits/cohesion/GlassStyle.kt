@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf

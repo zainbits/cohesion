@@ -1,10 +1,10 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 /**
  * Counters for tuning. They are plain fields touched only on the UI thread, so they cost
  * nothing worth measuring; read and reset them from a debug overlay.
  */
-public object LiquidDebug {
+public object CohesionDebug {
     /** Times a [glassSource] recorded its content. */
     public var sourceRecords: Long = 0
 

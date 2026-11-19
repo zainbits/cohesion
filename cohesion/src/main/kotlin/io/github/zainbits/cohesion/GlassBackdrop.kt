@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -77,7 +77,7 @@ private class GlassSourceNode(var backdrop: GlassBackdrop) :
         // Record once, show the recording. Glass surfaces replay the same display list.
         layer.record { this@draw.drawContent() }
         drawLayer(layer)
-        LiquidDebug.sourceRecords++
+        CohesionDebug.sourceRecords++
     }
 
     override fun onPlaced(coordinates: LayoutCoordinates) {

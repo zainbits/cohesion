@@ -1,4 +1,4 @@
-package io.github.zainbits.liquid
+package io.github.zainbits.cohesion
 
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
