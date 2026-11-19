@@ -215,6 +215,7 @@ public class GlassPass(private val scene: GlassScene) {
         val a = Math.toRadians(style.lightAngle.toDouble())
         val toward = if (style.edge.luminance() > 0.5f) 1f else -1f
         shader.setFloatUniform("uGEdgeLight", toward * cos(a).toFloat(), toward * sin(a).toFloat())
+        shader.setFloatUniform("uGEven", style.evenLight.coerceIn(0f, 1f))
     }
 
     private var solidBrush: ShaderBrush? = null
@@ -278,6 +279,7 @@ uniform float uGDispersion;
 layout(color) uniform half4 uGEdge;
 uniform float uGEdgeWidth;
 uniform float2 uGEdgeLight;
+uniform float uGEven;
 uniform float uGReflect;
 uniform float uGBlur;
 uniform float uGTaps;
@@ -314,7 +316,7 @@ private const val GLASS_MAIN = """
 void edgeShade(inout half4 c, float inside, float2 n) {
     float q = clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0);
     // All the way round, strongest on one side of the light; concentrated at the very border.
-    float side = mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight)));
+    float side = mix(mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight))), 0.8, uGEven);
     half e = half(q * q * side) * uGEdge.a;
     c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
 }
@@ -361,8 +363,11 @@ half4 main(float2 xy) {
 
     // Light catching the rim: strongest where the edge faces the light, softer opposite, with a sharp
     // highlight where it faces the light squarely.
-    float facing = dot(n, uGLight);
-    float lit = pow(max(facing, 0.0), 1.5) + 0.45 * pow(max(-facing, 0.0), 1.5);
+    // uGEven blends one light (uGLight) into four equal ones from the corners: every corner then catches the
+    // same highlight and the straight sides a little less.
+    float corner = (abs(n.x) + abs(n.y)) * 0.70710678;
+    float facing = mix(dot(n, uGLight), corner, uGEven);
+    float lit = pow(max(facing, 0.0), 1.5) + (1.0 - uGEven) * 0.45 * pow(max(-facing, 0.0), 1.5);
     float rim = clamp(1.0 - inside / uGRimWidth, 0.0, 1.0);
     float sq = clamp(1.0 - inside / (uGRimWidth * 2.5), 0.0, 1.0);
     float spec = pow(max(facing, 0.0), 10.0) * sq * sq;
@@ -376,7 +381,7 @@ half4 main(float2 xy) {
 
     // Pebble shading: across the bend the surface tilts, so it catches a soft gradient of the edge colour
     // on one side (grey away from the light on a light theme, a light sheen toward it on a dark one).
-    half pe = half(t * t * smoothstep(-0.2, 1.0, dot(n, uGEdgeLight)) * 0.45) * uGEdge.a;
+    half pe = half(t * t * mix(smoothstep(-0.2, 1.0, dot(n, uGEdgeLight)), 0.45, uGEven) * 0.45) * uGEdge.a;
     c = c * (1.0 - pe) + half4(uGEdge.rgb, 1.0) * pe;
 
     return c * half(cover);
@@ -389,13 +394,14 @@ layout(color) uniform half4 uGSolid2;
 layout(color) uniform half4 uGEdge;
 uniform float uGEdgeWidth;
 uniform float2 uGEdgeLight;
+uniform float uGEven;
 """
 
 private const val SOLID_MAIN = """
 void edgeShade(inout half4 c, float inside, float2 n) {
     float q = clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0);
     // All the way round, strongest on one side of the light; concentrated at the very border.
-    float side = mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight)));
+    float side = mix(mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight))), 0.8, uGEven);
     half e = half(q * q * side) * uGEdge.a;
     c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
 }
