@@ -24,6 +24,18 @@ class GlassStyleTest {
     }
 
     @Test
+    fun zeroIsFullyClear() {
+        for (dark in listOf(false, true)) {
+            val s = GlassStyle.forClarity(0f, dark)
+            assertEquals(0.dp, s.blurRadius)
+            assertEquals(0f, s.tintAlpha)
+            assertEquals(1f, s.saturation)
+        }
+        // And it fades in from there, with no jump.
+        assertTrue(GlassStyle.forClarity(0.01f, true).tintAlpha < 0.01f)
+    }
+
+    @Test
     fun clarityIsClamped() {
         assertEquals(GlassStyle.forClarity(0f, false), GlassStyle.forClarity(-3f, false))
         assertEquals(GlassStyle.forClarity(1f, false), GlassStyle.forClarity(9f, false))

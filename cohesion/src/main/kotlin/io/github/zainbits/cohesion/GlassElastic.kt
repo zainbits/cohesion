@@ -3,6 +3,7 @@ package io.github.zainbits.cohesion
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
@@ -134,12 +135,19 @@ public fun rememberGlassPullState(spec: GlassPullSpec = LocalGlassPullSpec.curre
  * Lets the finger pull this element: press swells it, dragging stretches it toward the finger
  * (with rubber-band resistance), release springs it back. A press that ends without leaving the
  * element (beyond the touch slop) counts as a tap and calls [onTap].
+ *
+ * @param onLongPress called when the press is held still for the long-press timeout (a menu); the glass
+ *   springs back and the release is then not a tap.
+ * @param scrollAxis the element sits in a list that scrolls along this axis: a drag that starts along it
+ *   belongs to the list (the glass springs back, no tap); a drag across it still stretches the glass.
  */
 public fun Modifier.glassPullGesture(
     state: GlassPullState,
     enabled: Boolean = true,
     onTap: (() -> Unit)? = null,
-): Modifier = if (!enabled) this else this.pointerInput(state, onTap) {
+    onLongPress: (() -> Unit)? = null,
+    scrollAxis: Orientation? = null,
+): Modifier = if (!enabled) this else this.pointerInput(state, onTap, onLongPress, scrollAxis) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         // A control inside the piece took this touch (marked with glassPullExempt, or it consumed the
@@ -147,12 +155,24 @@ public fun Modifier.glassPullGesture(
         if (down.isConsumed || state.exempt == down.id) return@awaitEachGesture
         state.down()
         val slop = viewConfiguration.touchSlop
+        val longPressAt = down.uptimeMillis + viewConfiguration.longPressTimeoutMillis
         var moved = false
         var last = down.position
         // A child that takes the gesture (a scrolling row, a slider, a button's tap) keeps it: no pull, no tap.
         var childOwns = false
         while (true) {
-            val event = awaitPointerEvent()
+            val event = if (onLongPress != null && !moved) {
+                val wait = longPressAt - (currentEvent.changes.firstOrNull()?.uptimeMillis ?: down.uptimeMillis)
+                withTimeoutOrNull(wait.coerceAtLeast(0L)) { awaitPointerEvent() }
+            } else {
+                awaitPointerEvent()
+            }
+            if (event == null) {
+                // Held still: a long press. The rest of this touch is not a tap or a pull.
+                state.release()
+                onLongPress?.invoke()
+                return@awaitEachGesture
+            }
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) {
                 last = change.position
@@ -165,7 +185,19 @@ public fun Modifier.glassPullGesture(
                 break
             }
             val delta = change.position - down.position
-            if (!moved && delta.getDistance() > slop) moved = true
+            if (!moved && delta.getDistance() > slop) {
+                val along = when (scrollAxis) {
+                    Orientation.Horizontal -> abs(delta.x) > abs(delta.y)
+                    Orientation.Vertical -> abs(delta.y) > abs(delta.x)
+                    null -> false
+                }
+                // A drag along the list's axis scrolls the list: leave it unconsumed for the list.
+                if (along) {
+                    childOwns = true
+                    break
+                }
+                moved = true
+            }
             if (moved) {
                 state.drag(delta)
                 change.consume()

@@ -55,21 +55,24 @@ public data class GlassStyle(
         /**
          * A look on one slider, like the iOS 27 Liquid Glass setting.
          *
-         * @param clarity 0 = ultra-clear, 1 = fully tinted (and cheapest: no blur pass).
+         * @param clarity 0 = fully clear (no frost, no tint, no colour boost: only the bent edge and its lit rim,
+         *   and no blur pass), 1 = fully tinted (also no blur pass).
          */
         public fun forClarity(clarity: Float, dark: Boolean): GlassStyle {
             val c = clarity.coerceIn(0f, 1f)
             val tint = if (dark) Color(0xFF1C1C1E) else Color(0xFFF7F7F9)
+            // The first part of the slider fades in the light frost, tint and colour boost from nothing.
+            val r = (c / 0.15f).coerceAtMost(1f)
             // Blur rises with tint until the glass is nearly opaque, then switches off:
             // a fully tinted surface hides the content anyway, so the pass would be wasted.
-            val blur = if (c >= 0.97f) 0.dp else lerp(2.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
+            val blur = if (c >= 0.97f) 0.dp else lerp(0.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
             return GlassStyle(
                 blurRadius = blur,
                 refractionBand = 16.dp,
                 refractionDepth = lerp(14.dp, 6.dp, c),
-                saturation = 1.6f - 0.5f * c,
+                saturation = 1f + 0.6f * r - 0.5f * c,
                 tint = tint,
-                tintAlpha = if (c >= 0.97f) 1f else (if (dark) 0.04f else 0.06f) + 0.80f * c * c,
+                tintAlpha = if (c >= 0.97f) 1f else (if (dark) 0.04f else 0.06f) * r + 0.80f * c * c,
                 rim = lerp(0.7f, 0.3f, c),
                 rimWidth = 1.2.dp,
                 lightAngle = -120f,
