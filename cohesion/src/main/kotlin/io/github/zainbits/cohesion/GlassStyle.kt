@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.lerp
  * @property reflection how much the border mirrors what lies just outside the glass; 0 = none.
  * @property evenLight 0 = one light from [lightAngle]; 1 = four equal lights from the corners, so the
  *   highlight and edge shading are the same all round.
+ * @property lightDistance how far away the [evenLight] corner lights are: 0 = close, the highlight stays on the
+ *   corners; 1 = far, it spreads evenly along the whole edge.
  * @property dispersion colour fringing at the edge (costs two extra samples per pixel when > 0).
  * @property solidColor what is drawn instead of glass in [GlassMode.Solid].
  * @property accentTint tint where a scene marks an accent (for example a selected tab);
@@ -52,6 +54,7 @@ public data class GlassStyle(
     val edgeWidth: Dp = 0.8.dp,
     val reflection: Float = 0f,
     val evenLight: Float = 0f,
+    val lightDistance: Float = 0.5f,
     val solidColor: Color = Color(0xF2F4F4F6),
     val accentTint: Color = Color.Unspecified,
     val accentTintAlpha: Float = 0.35f,
@@ -77,7 +80,7 @@ public data class GlassStyle(
             val r = (c / 0.15f).coerceAtMost(1f)
             // Even clear glass keeps a light veil of the theme's tint (whitish on light, dark on dark),
             // so it reads as glass and text on it stays legible.
-            val veil = if (dark) 0.22f else 0.14f
+            val veil = if (dark) 0.40f else 0.35f
             // Blur rises with tint until the glass is nearly opaque, then switches off:
             // a fully tinted surface hides the content anyway, so the pass would be wasted.
             val blur = if (c >= 0.97f) 0.dp else lerp(0.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
@@ -99,6 +102,7 @@ public data class GlassStyle(
                 edgeWidth = 1.5.dp,
                 reflection = lerp(0.55f, 0.15f, c),
                 evenLight = 1f,
+                lightDistance = 0.7f,
                 solidColor = lerp(tint, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }

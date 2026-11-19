@@ -31,7 +31,7 @@ class GlassStyleTest {
             assertEquals(0.dp, s.blurRadius)
             assertEquals(1f, s.saturation)
             // A light veil of the theme's tint, not frost.
-            assertTrue(s.tintAlpha > 0f && s.tintAlpha < 0.3f)
+            assertTrue(s.tintAlpha > 0f && s.tintAlpha < 0.5f)
             assertTrue(s.edgeAlpha > 0f)
             // Dark outline and whitish veil on light; light outline and dark veil on dark.
             assertEquals(dark, s.edge.luminance() > 0.5f)

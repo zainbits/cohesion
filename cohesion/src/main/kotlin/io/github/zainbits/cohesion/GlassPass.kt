@@ -241,6 +241,9 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setFloatUniform("uGDispersion", style.dispersion)
         setEdgeUniforms(shader, style)
         shader.setFloatUniform("uGReflect", style.reflection.coerceIn(0f, 1f))
+        // Far lights spread the corner highlights along the whole edge; near ones keep them on the corners.
+        val near = 1f - style.lightDistance.coerceIn(0f, 1f)
+        shader.setFloatUniform("uGCornerK", 4f * near * near)
         shader.setFloatUniform("uGBlur", tapBlur)
         shader.setFloatUniform("uGTaps", CohesionDebug.blurTaps.coerceIn(4, 32).toFloat())
     }
@@ -281,6 +284,7 @@ uniform float uGEdgeWidth;
 uniform float2 uGEdgeLight;
 uniform float uGEven;
 uniform float uGReflect;
+uniform float uGCornerK;
 uniform float uGBlur;
 uniform float uGTaps;
 
@@ -364,8 +368,8 @@ half4 main(float2 xy) {
     // Light catching the rim: strongest where the edge faces the light, softer opposite, with a sharp
     // highlight where it faces the light squarely.
     // uGEven blends one light (uGLight) into four equal ones from the corners: every corner then catches the
-    // same highlight and the straight sides a little less.
-    float corner = (abs(n.x) + abs(n.y)) * 0.70710678;
+    // same highlight and the straight sides less, by how far away the lights are (uGCornerK).
+    float corner = pow((abs(n.x) + abs(n.y)) * 0.70710678, uGCornerK);
     float facing = mix(dot(n, uGLight), corner, uGEven);
     float lit = pow(max(facing, 0.0), 1.5) + (1.0 - uGEven) * 0.45 * pow(max(-facing, 0.0), 1.5);
     float rim = clamp(1.0 - inside / uGRimWidth, 0.0, 1.0);
