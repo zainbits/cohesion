@@ -78,18 +78,20 @@ public data class GlassStyle(
             val blur = if (c >= 0.97f) 0.dp else lerp(0.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
             return GlassStyle(
                 blurRadius = blur,
-                refractionBand = 16.dp,
-                refractionDepth = lerp(14.dp, 6.dp, c),
+                // A wide band with a deep bend, so the glass reads a little like a pebble: rounded all the
+                // way in from its edge, not just at the rim.
+                refractionBand = 20.dp,
+                refractionDepth = lerp(18.dp, 8.dp, c),
                 saturation = 1f + 0.6f * r - 0.5f * c,
                 tint = tint,
                 tintAlpha = if (c >= 0.97f) 1f else (veil + 0.80f * c * c).coerceAtMost(1f),
-                rim = lerp(0.7f, 0.3f, c),
-                rimWidth = 1.2.dp,
+                rim = lerp(0.9f, 0.45f, c),
+                rimWidth = 1.5.dp,
                 lightAngle = -120f,
                 dispersion = 0f,
                 edge = if (dark) Color.White else Color.Black,
-                edgeAlpha = if (dark) 0.16f else 0.10f,
-                edgeWidth = 0.8.dp,
+                edgeAlpha = if (dark) 0.24f else 0.22f,
+                edgeWidth = 1.dp,
                 solidColor = lerp(tint, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }
