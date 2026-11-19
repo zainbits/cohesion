@@ -65,14 +65,21 @@ float3 sdRoundRect(float2 xy, float x, float y, float w, float hgt, float rad, f
     /**
      * `float3 smoothUnion(float3 a, float3 b, float k)`: joins two (distance, normal) shapes so
      * that pieces closer than k flow into each other like liquid; k = 0 is a plain union.
+     *
+     * The merge acts only where the two surfaces face each other (across a gap, or in the notch where
+     * two rounded corners meet): where they run side by side (a piece lying over or flush against
+     * another) a plain smooth minimum would swell the shared edge into a lump, so there it fades to a
+     * plain union. Pieces drawn on top of one another therefore look like one shape.
      */
     public const val SMOOTH_UNION: String = """
 float3 smoothUnion(float3 a, float3 b, float k) {
-    if (k <= 0.0) {
+    // 1 where the normals face each other, 0 where they point the same way.
+    float kk = k * clamp(0.5 - 0.5 * dot(a.yz, b.yz), 0.0, 1.0);
+    if (kk <= 0.001) {
         return b.x < a.x ? b : a;
     }
-    float t = clamp(0.5 + 0.5 * (a.x - b.x) / k, 0.0, 1.0);
-    float d = mix(a.x, b.x, t) - k * t * (1.0 - t);
+    float t = clamp(0.5 + 0.5 * (a.x - b.x) / kk, 0.0, 1.0);
+    float d = mix(a.x, b.x, t) - kk * t * (1.0 - t);
     float2 n = mix(a.yz, b.yz, t);
     return float3(d, n / max(length(n), 0.0001));
 }
