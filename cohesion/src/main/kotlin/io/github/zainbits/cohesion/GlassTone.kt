@@ -29,6 +29,13 @@ import androidx.compose.ui.unit.LayoutDirection
  * at most a few times a second; nothing runs while the screen is still.
  */
 public object GlassTone {
+    /**
+     * Off until the read-back is rebuilt: waiting for the GPU on the UI thread (syncAndDraw with
+     * waitForPresent) could hang for good on a Mali phone and freeze the app. While off, [luminance]
+     * returns false at once and adaptive glass keeps the colour its style starts with.
+     */
+    public var enabled: Boolean = false
+
     private const val W = 64
     private const val H = 16
 
@@ -55,7 +62,7 @@ public object GlassTone {
         count: Int,
         out: FloatArray,
     ): Boolean {
-        if (bounds.width < 1f || bounds.height < 1f || count == 0) return false
+        if (!enabled || bounds.width < 1f || bounds.height < 1f || count == 0) return false
         Trace.beginSection("Cohesion#tone")
         val start = SystemClock.elapsedRealtimeNanos()
         try {
