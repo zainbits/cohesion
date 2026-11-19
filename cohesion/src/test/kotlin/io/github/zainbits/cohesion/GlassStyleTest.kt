@@ -1,5 +1,6 @@
 package io.github.zainbits.cohesion
 
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -24,15 +25,18 @@ class GlassStyleTest {
     }
 
     @Test
-    fun zeroIsFullyClear() {
+    fun zeroIsClearWithAVeilAndOutline() {
         for (dark in listOf(false, true)) {
             val s = GlassStyle.forClarity(0f, dark)
             assertEquals(0.dp, s.blurRadius)
-            assertEquals(0f, s.tintAlpha)
             assertEquals(1f, s.saturation)
+            // A light veil of the theme's tint, not frost.
+            assertTrue(s.tintAlpha > 0f && s.tintAlpha < 0.3f)
+            assertTrue(s.edgeAlpha > 0f)
+            // Dark outline and whitish veil on light; light outline and dark veil on dark.
+            assertEquals(dark, s.edge.luminance() > 0.5f)
+            assertEquals(dark, s.tint.luminance() < 0.5f)
         }
-        // And it fades in from there, with no jump.
-        assertTrue(GlassStyle.forClarity(0.01f, true).tintAlpha < 0.01f)
     }
 
     @Test

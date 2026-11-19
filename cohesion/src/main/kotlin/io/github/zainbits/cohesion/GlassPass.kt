@@ -197,6 +197,8 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setColorUniform("uGSolid", style.solidColor.toArgb())
         val accent = if (style.accentSolidColor.isSpecified) style.accentSolidColor else style.solidColor
         shader.setColorUniform("uGSolid2", accent.toArgb())
+        shader.setColorUniform("uGEdge", style.edge.copy(alpha = style.edgeAlpha.coerceIn(0f, 1f)).toArgb())
+        shader.setFloatUniform("uGEdgeWidth", style.edgeWidth.toPx().coerceAtLeast(0.5f))
         scene.applyUniforms(shader)
         val brush = solidBrush?.takeIf { solidShader === shader } ?: ShaderBrush(shader).also {
             solidBrush = it
@@ -227,6 +229,8 @@ public class GlassPass(private val scene: GlassScene) {
         val a = Math.toRadians(style.lightAngle.toDouble())
         shader.setFloatUniform("uGLight", cos(a).toFloat(), sin(a).toFloat())
         shader.setFloatUniform("uGDispersion", style.dispersion)
+        shader.setColorUniform("uGEdge", style.edge.copy(alpha = style.edgeAlpha.coerceIn(0f, 1f)).toArgb())
+        shader.setFloatUniform("uGEdgeWidth", style.edgeWidth.toPx().coerceAtLeast(0.5f))
         shader.setFloatUniform("uGBlur", tapBlur)
         shader.setFloatUniform("uGTaps", CohesionDebug.blurTaps.coerceIn(4, 32).toFloat())
     }
@@ -262,6 +266,8 @@ uniform float uGRim;
 uniform float uGRimWidth;
 uniform float2 uGLight;
 uniform float uGDispersion;
+layout(color) uniform half4 uGEdge;
+uniform float uGEdgeWidth;
 uniform float uGBlur;
 uniform float uGTaps;
 
@@ -331,6 +337,10 @@ half4 main(float2 xy) {
     float glow = uGRim * (rim * lit + 0.10 * t * t);
     c.rgb = c.rgb + (c.a - c.rgb) * half(glow);
 
+    // The outline: a hairline of uGEdge right at the border, all the way round.
+    half e = half(clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0)) * uGEdge.a;
+    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+
     return c * half(cover);
 }
 """
@@ -338,12 +348,17 @@ half4 main(float2 xy) {
 private const val SOLID_HEADER = """
 layout(color) uniform half4 uGSolid;
 layout(color) uniform half4 uGSolid2;
+layout(color) uniform half4 uGEdge;
+uniform float uGEdgeWidth;
 """
 
 private const val SOLID_MAIN = """
 half4 main(float2 xy) {
     float3 sc = scene(xy);
     float cover = clamp(0.5 - sc.x, 0.0, 1.0);
-    return mix(uGSolid, uGSolid2, sceneAccent(xy)) * half(cover);
+    half4 c = mix(uGSolid, uGSolid2, sceneAccent(xy));
+    half e = half(clamp(1.0 + sc.x / uGEdgeWidth, 0.0, 1.0)) * uGEdge.a;
+    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
+    return c * half(cover);
 }
 """

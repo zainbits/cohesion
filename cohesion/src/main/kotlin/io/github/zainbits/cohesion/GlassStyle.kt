@@ -21,6 +21,10 @@ import androidx.compose.ui.unit.lerp
  * @property rimWidth width of the lit edge.
  * @property lightAngle direction the light comes from, in degrees (0 = from the right,
  *   -90 = from the top).
+ * @property edge colour of the thin outline around the glass, like the hairline on Apple's glass: dark on a
+ *   light theme, light on a dark theme. It reads as the glass bending at its border.
+ * @property edgeAlpha strength of [edge]; 0 = no outline.
+ * @property edgeWidth width of the outline.
  * @property dispersion colour fringing at the edge (costs two extra samples per pixel when > 0).
  * @property solidColor what is drawn instead of glass in [GlassMode.Solid].
  * @property accentTint tint where a scene marks an accent (for example a selected tab);
@@ -40,6 +44,9 @@ public data class GlassStyle(
     val rimWidth: Dp = 1.2.dp,
     val lightAngle: Float = -120f,
     val dispersion: Float = 0f,
+    val edge: Color = Color.Black,
+    val edgeAlpha: Float = 0f,
+    val edgeWidth: Dp = 0.8.dp,
     val solidColor: Color = Color(0xF2F4F4F6),
     val accentTint: Color = Color.Unspecified,
     val accentTintAlpha: Float = 0.35f,
@@ -55,14 +62,17 @@ public data class GlassStyle(
         /**
          * A look on one slider, like the iOS 27 Liquid Glass setting.
          *
-         * @param clarity 0 = fully clear (no frost, no tint, no colour boost: only the bent edge and its lit rim,
-         *   and no blur pass), 1 = fully tinted (also no blur pass).
+         * @param clarity 0 = clear (no frost and no blur pass: only a light veil of the theme's tint, the bent
+         *   edge, its lit rim and the outline), 1 = fully tinted (also no blur pass).
          */
         public fun forClarity(clarity: Float, dark: Boolean): GlassStyle {
             val c = clarity.coerceIn(0f, 1f)
-            val tint = if (dark) Color(0xFF1C1C1E) else Color(0xFFF7F7F9)
-            // The first part of the slider fades in the light frost, tint and colour boost from nothing.
+            val tint = if (dark) Color(0xFF101012) else Color(0xFFFFFFFF)
+            // The first part of the slider fades in the colour boost from nothing.
             val r = (c / 0.15f).coerceAtMost(1f)
+            // Even clear glass keeps a light veil of the theme's tint (whitish on light, dark on dark),
+            // so it reads as glass and text on it stays legible.
+            val veil = if (dark) 0.22f else 0.14f
             // Blur rises with tint until the glass is nearly opaque, then switches off:
             // a fully tinted surface hides the content anyway, so the pass would be wasted.
             val blur = if (c >= 0.97f) 0.dp else lerp(0.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
@@ -72,11 +82,14 @@ public data class GlassStyle(
                 refractionDepth = lerp(14.dp, 6.dp, c),
                 saturation = 1f + 0.6f * r - 0.5f * c,
                 tint = tint,
-                tintAlpha = if (c >= 0.97f) 1f else (if (dark) 0.04f else 0.06f) * r + 0.80f * c * c,
+                tintAlpha = if (c >= 0.97f) 1f else (veil + 0.80f * c * c).coerceAtMost(1f),
                 rim = lerp(0.7f, 0.3f, c),
                 rimWidth = 1.2.dp,
                 lightAngle = -120f,
                 dispersion = 0f,
+                edge = if (dark) Color.White else Color.Black,
+                edgeAlpha = if (dark) 0.16f else 0.10f,
+                edgeWidth = 0.8.dp,
                 solidColor = lerp(tint, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }
