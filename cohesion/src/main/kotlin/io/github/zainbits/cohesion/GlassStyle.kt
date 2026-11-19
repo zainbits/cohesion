@@ -72,30 +72,22 @@ public data class GlassStyle(
          *
          * @param clarity 0 = clear (no frost and no blur pass: only a light veil of the theme's tint, the bent
          *   edge, its lit rim and the outline), 1 = fully tinted (also no blur pass).
-         * @param tint strength of that veil at clarity 0 (0 to 1); null = the default for the theme
-         *   ([DEFAULT_TINT_LIGHT] or [DEFAULT_TINT_DARK]). More clarity adds to it.
-         * @param lightDistance see [GlassStyle.lightDistance].
-         * @param edgeLight how bright the light border is (0 to 1): the lit rim, and with it the outline;
-         *   null = the default for [clarity].
+         *
+         * The veil ([TINT]) and the light border ([EDGE_LIGHT_LIGHT], [EDGE_LIGHT_DARK]) are fixed: the owner
+         * tuned them by eye, and no app changes them.
          */
-        public fun forClarity(
-            clarity: Float,
-            dark: Boolean,
-            tint: Float? = null,
-            lightDistance: Float = DEFAULT_LIGHT_DISTANCE,
-            edgeLight: Float? = null,
-        ): GlassStyle {
+        public fun forClarity(clarity: Float, dark: Boolean): GlassStyle {
             val c = clarity.coerceIn(0f, 1f)
             val tintColor = if (dark) Color(0xFF101012) else Color(0xFFFFFFFF)
             // The first part of the slider fades in the colour boost from nothing.
             val r = (c / 0.15f).coerceAtMost(1f)
             // Even clear glass keeps a light veil of the theme's tint (whitish on light, dark on dark),
             // so it reads as glass and text on it stays legible.
-            val defaultRim = lerp(0.9f, 0.45f, c)
-            val rim = edgeLight?.coerceIn(0f, 1f) ?: defaultRim
-            // The outline follows the light border, so turning it down softens the whole edge.
-            val edgeScale = if (defaultRim > 0f) (rim / defaultRim).coerceIn(0f, 2f) else 1f
-            val veil = (tint ?: if (dark) DEFAULT_TINT_DARK else DEFAULT_TINT_LIGHT).coerceIn(0f, 1f)
+            val veil = TINT
+            // A thin light wrapped evenly round the shape. The outline goes with it (as tuned: its full
+            // strength belongs to a border of 0.9).
+            val rim = if (dark) EDGE_LIGHT_DARK else EDGE_LIGHT_LIGHT
+            val edgeScale = rim / 0.9f
             // Blur rises with tint until the glass is nearly opaque, then switches off:
             // a fully tinted surface hides the content anyway, so the pass would be wasted.
             val blur = if (c >= 0.97f) 0.dp else lerp(0.dp, 18.dp, (c / 0.8f).coerceAtMost(1f))
@@ -117,19 +109,19 @@ public data class GlassStyle(
                 edgeWidth = 1.5.dp,
                 reflection = lerp(0.55f, 0.15f, c),
                 evenLight = 1f,
-                lightDistance = lightDistance.coerceIn(0f, 1f),
+                lightDistance = 1f,
                 solidColor = lerp(tintColor, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }
 
-        /** The veil of clear glass on a light theme, about what iOS 27 shows at its clearest. */
-        public const val DEFAULT_TINT_LIGHT: Float = 0.35f
+        /** The veil of clear glass, whitish on a light theme and dark on a dark one. */
+        public const val TINT: Float = 0.50f
 
-        /** The veil of clear glass on a dark theme. */
-        public const val DEFAULT_TINT_DARK: Float = 0.40f
+        /** Brightness of the light border on a light theme. */
+        public const val EDGE_LIGHT_LIGHT: Float = 0.75f
 
-        /** How far away the corner lights are by default: far, so the light is the same on every side. */
-        public const val DEFAULT_LIGHT_DISTANCE: Float = 1f
+        /** Brightness of the light border on a dark theme: just a hint. */
+        public const val EDGE_LIGHT_DARK: Float = 0.05f
 
         private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
     }
