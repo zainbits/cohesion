@@ -92,6 +92,9 @@ public class GlassPullState internal constructor(internal val scope: CoroutineSc
     /** The pointer a [glassPullExempt] control inside the piece took; the piece ignores that gesture. */
     internal var exempt: PointerId? = null
 
+    /** The pointer that went down in a [glassPullNoTap] zone: it pulls the glass but is not a tap. */
+    internal var noTap: PointerId? = null
+
     internal fun down() {
         scope.launch { press.animateTo(spec.pressScale, pressSpring()) }
     }
@@ -171,7 +174,7 @@ public fun Modifier.glassPullGesture(
         val inside = last.x >= -slop && last.y >= -slop &&
             last.x <= size.width + slop && last.y <= size.height + slop
         state.release()
-        if (onTap != null && inside && !childOwns) onTap()
+        if (onTap != null && inside && !childOwns && state.noTap != down.id) onTap()
     }
 }
 
@@ -184,6 +187,16 @@ public fun Modifier.glassPullExempt(state: GlassPullState?): Modifier = if (stat
     awaitEachGesture {
         // Main pass runs from the innermost element out, so this is seen before the glass's own gesture.
         state.exempt = awaitFirstDown(requireUnconsumed = false).id
+    }
+}
+
+/**
+ * Marks a passive zone inside elastic glass (the empty part of an open panel): pressing and dragging it
+ * still swells and stretches the glass, but releasing there is not a tap on the glass.
+ */
+public fun Modifier.glassPullNoTap(state: GlassPullState?): Modifier = if (state == null) this else this.pointerInput(state) {
+    awaitEachGesture {
+        state.noTap = awaitFirstDown(requireUnconsumed = false).id
     }
 }
 

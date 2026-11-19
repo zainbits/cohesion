@@ -35,22 +35,28 @@ import kotlinx.coroutines.flow.StateFlow
 public class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
     internal var coordinates: LayoutCoordinates? = null
     private val changed = MutableStateFlow(0L)
+    private val scrolled = MutableStateFlow(0L)
 
     /**
-     * Ticks when what the glass shows may have changed: the content was recorded again or something in it
-     * scrolled. Glass that adapts its text colour ([GlassTone]) samples on these. Scrolling done in code
-     * (`animateScrollToItem`) is not seen by the source; call [notifyChanged] for it.
+     * Ticks when what the glass shows may have changed: the content was recorded again, a fling ended, or
+     * [notifyChanged]. Adaptive text colour ([GlassToneProbe]) reads the content once these settle.
      */
     public val changes: StateFlow<Long> get() = changed
 
-    /** Tells adaptive glass that the content behind it changed in a way the source cannot see. */
+    /** Ticks while something inside the content scrolls under the finger; readings wait until it stops. */
+    public val scrolls: StateFlow<Long> get() = scrolled
+
+    /**
+     * Tells adaptive glass that the content behind it changed in a way the source cannot see, such as
+     * scrolling done in code (`animateScrollToItem`).
+     */
     public fun notifyChanged() {
         changed.value++
     }
 
     internal val scrollSignal = object : NestedScrollConnection {
         override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-            if (consumed != Offset.Zero) notifyChanged()
+            if (consumed != Offset.Zero) scrolled.value++
             return Offset.Zero
         }
 
