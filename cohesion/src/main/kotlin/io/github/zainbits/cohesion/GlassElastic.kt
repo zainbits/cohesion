@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -88,6 +89,9 @@ public class GlassPullState internal constructor(internal val scope: CoroutineSc
     /** Press swell (1 = rest). Read it only in draw or layer blocks. */
     public val scale: Float get() = press.value
 
+    /** The pointer a [glassPullExempt] control inside the piece took; the piece ignores that gesture. */
+    internal var exempt: PointerId? = null
+
     internal fun down() {
         scope.launch { press.animateTo(spec.pressScale, pressSpring()) }
     }
@@ -135,6 +139,9 @@ public fun Modifier.glassPullGesture(
 ): Modifier = if (!enabled) this else this.pointerInput(state, onTap) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
+        // A control inside the piece took this touch (marked with glassPullExempt, or it consumed the
+        // press): the glass neither swells, stretches nor taps. Nested pointer input sees the event first.
+        if (down.isConsumed || state.exempt == down.id) return@awaitEachGesture
         state.down()
         val slop = viewConfiguration.touchSlop
         var moved = false
@@ -165,6 +172,18 @@ public fun Modifier.glassPullGesture(
             last.x <= size.width + slop && last.y <= size.height + slop
         state.release()
         if (onTap != null && inside && !childOwns) onTap()
+    }
+}
+
+/**
+ * Marks a control inside elastic glass (a slider, a row of cards, a button) whose touches belong to it:
+ * pressing, scrolling or dragging it leaves the glass still (no swell, no stretch, no tap on the glass).
+ * Touches elsewhere on the glass still pull it.
+ */
+public fun Modifier.glassPullExempt(state: GlassPullState?): Modifier = if (state == null) this else this.pointerInput(state) {
+    awaitEachGesture {
+        // Main pass runs from the innermost element out, so this is seen before the glass's own gesture.
+        state.exempt = awaitFirstDown(requireUnconsumed = false).id
     }
 }
 
