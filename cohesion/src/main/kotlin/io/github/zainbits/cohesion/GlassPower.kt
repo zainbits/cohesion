@@ -15,12 +15,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * The mode the device can afford right now: [preferred] normally, [GlassMode.Solid] while
- * battery saver is on or the phone is hot enough to throttle (thermal status SEVERE or worse).
- * Updates live.
+ * True while the device should not spend power on glass: battery saver is on, or the phone is hot
+ * enough to throttle (thermal status SEVERE or worse). Updates live.
  */
 @Composable
-public fun rememberAdaptiveGlassMode(preferred: GlassMode = GlassMode.Full): GlassMode {
+public fun rememberGlassThrottled(): Boolean {
     val context = LocalContext.current
     val power = remember(context) { context.getSystemService(PowerManager::class.java) }
     var saver by remember { mutableStateOf(power.isPowerSaveMode) }
@@ -46,8 +45,16 @@ public fun rememberAdaptiveGlassMode(preferred: GlassMode = GlassMode.Full): Gla
             power.removeThermalStatusListener(thermal)
         }
     }
-    return if (saver || hot) GlassMode.Solid else preferred
+    return saver || hot
 }
+
+/**
+ * The mode the device can afford right now: [preferred] normally, [GlassMode.Solid] while
+ * [rememberGlassThrottled] is true. Updates live.
+ */
+@Composable
+public fun rememberAdaptiveGlassMode(preferred: GlassMode = GlassMode.Full): GlassMode =
+    if (rememberGlassThrottled()) GlassMode.Solid else preferred
 
 /**
  * Sets the look and mode for every glass surface inside [content].
