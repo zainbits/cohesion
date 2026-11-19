@@ -7,6 +7,7 @@ The shared, public engine under Zain's Compose libraries (Vitreous glass, Menisc
 - `RoundRectScene`: up to 8 rounded rectangles with elastic stretch and smooth (liquid) merging. `CohesionAgsl` holds the shape snippets.
 - `GlassPullSpec` / `GlassPullState` / `glassPullGesture` / `glassPullContent`: elastic pull with Apple's Liquid Lens springs (iOS 26.5 UIKitCore: lift 0.625 / 0.27 s, unlift 0.7 / 0.5 s); circles stretch along the drag, other shapes along x and y.
 - `GlassStyle.forClarity`, `GlassMode`, `rememberGlassThrottled`, `rememberAdaptiveGlassMode`, `ProvideGlass`: the look on one slider, and Solid (or off, your choice) in battery saver or heat.
+- `GlassTone`: how bright the content behind glass is (a 64 x 16 read-back, only when the content or the glass moved), so glass text can turn dark over bright content like iOS. `GlassBackdrop.changes` ticks on records and on scrolling inside the source; `notifyChanged()` for scrolling done in code.
 
 Android 13+ (minSdk 33). Apache-2.0.
 

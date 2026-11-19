@@ -139,14 +139,21 @@ public fun Modifier.glassPullGesture(
         val slop = viewConfiguration.touchSlop
         var moved = false
         var last = down.position
+        // A child that takes the gesture (a scrolling row, a slider, a button's tap) keeps it: no pull, no tap.
+        var childOwns = false
         while (true) {
             val event = awaitPointerEvent()
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) {
                 last = change.position
+                if (change.isConsumed) childOwns = true
                 break
             }
             last = change.position
+            if (!moved && change.isConsumed) {
+                childOwns = true
+                break
+            }
             val delta = change.position - down.position
             if (!moved && delta.getDistance() > slop) moved = true
             if (moved) {
@@ -157,7 +164,7 @@ public fun Modifier.glassPullGesture(
         val inside = last.x >= -slop && last.y >= -slop &&
             last.x <= size.width + slop && last.y <= size.height + slop
         state.release()
-        if (onTap != null && inside) onTap()
+        if (onTap != null && inside && !childOwns) onTap()
     }
 }
 

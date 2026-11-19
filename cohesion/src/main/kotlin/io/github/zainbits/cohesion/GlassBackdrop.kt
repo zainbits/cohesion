@@ -15,6 +15,13 @@ import androidx.compose.ui.node.LayoutAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * The content that glass surfaces show through them.
@@ -27,6 +34,31 @@ import androidx.compose.ui.platform.InspectorInfo
 @Stable
 public class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
     internal var coordinates: LayoutCoordinates? = null
+    private val changed = MutableStateFlow(0L)
+
+    /**
+     * Ticks when what the glass shows may have changed: the content was recorded again or something in it
+     * scrolled. Glass that adapts its text colour ([GlassTone]) samples on these. Scrolling done in code
+     * (`animateScrollToItem`) is not seen by the source; call [notifyChanged] for it.
+     */
+    public val changes: StateFlow<Long> get() = changed
+
+    /** Tells adaptive glass that the content behind it changed in a way the source cannot see. */
+    public fun notifyChanged() {
+        changed.value++
+    }
+
+    internal val scrollSignal = object : NestedScrollConnection {
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            if (consumed != Offset.Zero) notifyChanged()
+            return Offset.Zero
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+            notifyChanged()
+            return Velocity.Zero
+        }
+    }
 }
 
 /** Creates a [GlassBackdrop] owned by the current composition. */
@@ -45,7 +77,8 @@ public fun rememberGlassBackdrop(): GlassBackdrop {
 public fun Modifier.glassSource(backdrop: GlassBackdrop): Modifier =
     // Own layer first, so redraws of unrelated siblings (a clock, a counter) do not make the
     // source record its content again.
-    this.graphicsLayer() then GlassSourceElement(backdrop)
+    // The nested-scroll hook sees any scrolling inside the content, for adaptive text colour.
+    this.graphicsLayer().nestedScroll(backdrop.scrollSignal) then GlassSourceElement(backdrop)
 
 private class GlassSourceElement(val backdrop: GlassBackdrop) :
     ModifierNodeElement<GlassSourceNode>() {
@@ -78,6 +111,7 @@ private class GlassSourceNode(var backdrop: GlassBackdrop) :
         layer.record { this@draw.drawContent() }
         drawLayer(layer)
         CohesionDebug.sourceRecords++
+        backdrop.notifyChanged()
     }
 
     override fun onPlaced(coordinates: LayoutCoordinates) {
