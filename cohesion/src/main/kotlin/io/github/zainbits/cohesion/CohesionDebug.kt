@@ -14,10 +14,6 @@ public object CohesionDebug {
     /** Times a glass effect (shader uniforms + blur) was rebuilt. */
     public var effectBuilds: Long = 0
 
-    /** Times [GlassTone] read the content's brightness back, and the UI-thread time that took. */
-    public var toneSamples: Long = 0
-    public var toneNanos: Long = 0
-
     /**
      * Experiment knob: the blur reads a copy this many times smaller in each direction
      * (1 = full size, 0 = automatic from the blur radius). Read when a glass surface next draws.
@@ -44,7 +40,5 @@ public object CohesionDebug {
         sourceRecords = 0
         glassRecords = 0
         effectBuilds = 0
-        toneSamples = 0
-        toneNanos = 0
     }
 }
