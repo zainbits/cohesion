@@ -5,11 +5,14 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.LayoutAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
@@ -41,19 +44,25 @@ public fun rememberGlassBackdrop(): GlassBackdrop {
  *
  * A glass surface must not be inside the content it samples (it would sample itself); put it
  * in a sibling drawn after this one, for example a later child of the same `Box`.
+ *
+ * Layers: with [under], the part of that backdrop behind this content (clipped to this content's
+ * bounds) is recorded first, then the content on top. Glass surfaces inside this content can be glass
+ * over [under] (tabs over a page), and glass over this backdrop then shows both (a button the tabs
+ * scroll under). [under] is drawn by reference, so it stays live without this content recording again.
  */
-public fun Modifier.glassSource(backdrop: GlassBackdrop): Modifier =
+public fun Modifier.glassSource(backdrop: GlassBackdrop, under: GlassBackdrop? = null): Modifier =
     // Own layer first, so redraws of unrelated siblings (a clock, a counter) do not make the
     // source record its content again.
-    this.graphicsLayer() then GlassSourceElement(backdrop)
+    this.graphicsLayer() then GlassSourceElement(backdrop, under)
 
-private class GlassSourceElement(val backdrop: GlassBackdrop) :
+private class GlassSourceElement(val backdrop: GlassBackdrop, val under: GlassBackdrop?) :
     ModifierNodeElement<GlassSourceNode>() {
-    override fun create(): GlassSourceNode = GlassSourceNode(backdrop)
+    override fun create(): GlassSourceNode = GlassSourceNode(backdrop, under)
 
     override fun update(node: GlassSourceNode) {
-        if (node.backdrop !== backdrop) {
+        if (node.backdrop !== backdrop || node.under !== under) {
             node.backdrop = backdrop
+            node.under = under
             node.invalidateDraw()
         }
     }
@@ -61,31 +70,49 @@ private class GlassSourceElement(val backdrop: GlassBackdrop) :
     override fun InspectorInfo.inspectableProperties() {
         name = "glassSource"
         properties["backdrop"] = backdrop
+        properties["under"] = under
     }
 
     override fun equals(other: Any?): Boolean =
-        other is GlassSourceElement && other.backdrop === backdrop
+        other is GlassSourceElement && other.backdrop === backdrop && other.under === under
 
-    override fun hashCode(): Int = System.identityHashCode(backdrop)
+    override fun hashCode(): Int = 31 * System.identityHashCode(backdrop) + System.identityHashCode(under)
 }
 
-private class GlassSourceNode(var backdrop: GlassBackdrop) :
+private class GlassSourceNode(var backdrop: GlassBackdrop, var under: GlassBackdrop?) :
     Modifier.Node(), DrawModifierNode, LayoutAwareModifierNode {
+
+    private var placed: LayoutCoordinates? = null
+    private var placedAt = androidx.compose.ui.geometry.Offset.Unspecified
 
     override fun ContentDrawScope.draw() {
         val layer = backdrop.layer
+        val below = under
+        val at = if (below != null) placed?.let { below.positionOf(it) } else null
         // Record once, show the recording. Glass surfaces replay the same display list.
-        layer.record { this@draw.drawContent() }
+        layer.record {
+            if (below != null && at != null) {
+                clipRect { translate(-at.x, -at.y) { drawLayer(below.layer) } }
+            }
+            this@draw.drawContent()
+        }
         drawLayer(layer)
         CohesionDebug.sourceRecords++
     }
 
     override fun onPlaced(coordinates: LayoutCoordinates) {
         backdrop.coordinates = coordinates
+        placed = coordinates
+        // Moved: the part of [under] behind this content changed, record again.
+        val at = coordinates.positionInRoot()
+        if (under != null && at != placedAt) invalidateDraw()
+        placedAt = at
     }
 
     override fun onDetach() {
         backdrop.coordinates = null
+        placed = null
+        placedAt = androidx.compose.ui.geometry.Offset.Unspecified
     }
 }
 
