@@ -17,6 +17,8 @@ import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.LayoutAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.node.requireGraphicsContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.InspectorInfo
 
 /**
@@ -26,10 +28,18 @@ import androidx.compose.ui.platform.InspectorInfo
  * that content (siblings drawn on top of it) then sample it. The content is recorded into one
  * GPU display list per frame and that same list is both shown on screen and replayed by every
  * glass surface, so the content is never drawn twice on the UI thread.
+ *
+ * Glass on glass: glass shows only what its backdrop recorded, never other glass drawn after it. To let a
+ * glass piece show glass (and anything else) under it, put what lies between in a layer of its own,
+ * `glassSource(upper, under = lower)`, and point the higher glass at `upper`: it then shows the lower content
+ * and everything in that layer, glass included, the way a pane laid on another shows both.
  */
 @Stable
 public class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
     internal var coordinates: LayoutCoordinates? = null
+
+    /** The recorded content's size (zero before it is placed). Samples past it see nothing. */
+    public val size: IntSize get() = coordinates?.takeIf { it.isAttached }?.size ?: IntSize.Zero
 }
 
 /** Creates a [GlassBackdrop] owned by the current composition. */
@@ -47,8 +57,10 @@ public fun rememberGlassBackdrop(): GlassBackdrop {
  *
  * Layers: with [under], the part of that backdrop behind this content (clipped to this content's
  * bounds) is recorded first, then the content on top. Glass surfaces inside this content can be glass
- * over [under] (tabs over a page), and glass over this backdrop then shows both (a button the tabs
- * scroll under). [under] is drawn by reference, so it stays live without this content recording again.
+ * over [under] (tabs over a page, a title bar over a chat), and glass over this backdrop then shows both
+ * (a button the tabs scroll under, a composer over the title's open panel). [under] is drawn by reference,
+ * so it stays live without this content recording again, and only into the backdrop: the screen shows this
+ * content alone over it, so nothing is drawn twice.
  */
 public fun Modifier.glassSource(backdrop: GlassBackdrop, under: GlassBackdrop? = null): Modifier =
     // Own layer first, so redraws of unrelated siblings (a clock, a counter) do not make the
@@ -85,18 +97,26 @@ private class GlassSourceNode(var backdrop: GlassBackdrop, var under: GlassBackd
     private var placed: LayoutCoordinates? = null
     private var placedAt = androidx.compose.ui.geometry.Offset.Unspecified
 
+    // With [under]: this content alone, shown on screen and replayed inside the backdrop over [under].
+    private var shown: GraphicsLayer? = null
+
     override fun ContentDrawScope.draw() {
         val layer = backdrop.layer
         val below = under
-        val at = if (below != null) placed?.let { below.positionOf(it) } else null
-        // Record once, show the recording. Glass surfaces replay the same display list.
-        layer.record {
-            if (below != null && at != null) {
-                clipRect { translate(-at.x, -at.y) { drawLayer(below.layer) } }
+        if (below == null) {
+            // Record once, show the recording. Glass surfaces replay the same display list.
+            layer.record { this@draw.drawContent() }
+            drawLayer(layer)
+        } else {
+            val own = shown ?: requireGraphicsContext().createGraphicsLayer().also { shown = it }
+            own.record { this@draw.drawContent() }
+            val at = placed?.let { below.positionOf(it) }
+            layer.record {
+                if (at != null) clipRect { translate(-at.x, -at.y) { drawLayer(below.layer) } }
+                drawLayer(own)
             }
-            this@draw.drawContent()
+            drawLayer(own)
         }
-        drawLayer(layer)
         CohesionDebug.sourceRecords++
     }
 
@@ -110,6 +130,8 @@ private class GlassSourceNode(var backdrop: GlassBackdrop, var under: GlassBackd
     }
 
     override fun onDetach() {
+        shown?.let { requireGraphicsContext().releaseGraphicsLayer(it) }
+        shown = null
         backdrop.coordinates = null
         placed = null
         placedAt = androidx.compose.ui.geometry.Offset.Unspecified

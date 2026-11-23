@@ -18,6 +18,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
@@ -90,31 +94,58 @@ public class GlassPullState internal constructor(internal val scope: CoroutineSc
     /** Press swell (1 = rest). Read it only in draw or layer blocks. */
     public val scale: Float get() = press.value
 
+    /**
+     * How far the piece is lifted by the press, 0 (rest) to about 1 (fully pressed; a bouncy spring overshoots
+     * a little): the glass bends more and its rim and the spot under the finger light up. Read it in draw.
+     */
+    public val lift: Float
+        get() {
+            val full = spec.pressScale - 1f
+            return if (full <= 0.0001f) 0f else ((press.value - 1f) / full).coerceIn(0f, 1.2f)
+        }
+
+    /** Where the finger is on the piece (its own pixels), for the light under it. Read it in draw. */
+    public var touch: Offset by mutableStateOf(Offset.Unspecified)
+        internal set
+
     /** The pointer a [glassPullExempt] control inside the piece took; the piece ignores that gesture. */
     internal var exempt: PointerId? = null
 
     /** The pointer that went down in a [glassPullNoTap] zone: it pulls the glass but is not a tap. */
     internal var noTap: PointerId? = null
 
-    internal fun down() {
+    internal fun down(at: Offset) {
+        touch = at
         scope.launch { press.animateTo(spec.pressScale, pressSpring()) }
     }
 
-    internal fun drag(to: Offset) {
+    internal fun drag(to: Offset, at: Offset) {
+        touch = at
         scope.launch { pull.snapTo(to) }
     }
 
-    internal fun release() {
+    /**
+     * Springs back. [velocity] (pixels per second) is how fast the finger was moving when it let go: the
+     * stretch keeps that speed and swings on with it before settling, like a real elastic thrown loose.
+     */
+    internal fun release(velocity: Offset = Offset.Zero) {
         // Unlift: the swell goes back with the release spring, like UIKit's unlift.
         scope.launch {
             press.animateTo(1f, spring(dampingRatio = dampingOf(spec.bounce), stiffness = springStiffness(spec.response)))
         }
+        val v = velocity.getDistance().let { len -> if (len > MAX_RELEASE_SPEED) velocity * (MAX_RELEASE_SPEED / len) else velocity }
         scope.launch {
             pull.animateTo(
                 Offset.Zero,
                 spring(dampingRatio = dampingOf(spec.bounce), stiffness = springStiffness(spec.response)),
+                initialVelocity = v,
             )
         }
+    }
+
+    private companion object {
+        /** Fastest release carried into the spring (px/s), so a hard flick does not throw the shape off. */
+        const val MAX_RELEASE_SPEED = 6000f
     }
 
     private fun pressSpring() = spring<Float>(
@@ -153,7 +184,10 @@ public fun Modifier.glassPullGesture(
         // A control inside the piece took this touch (marked with glassPullExempt, or it consumed the
         // press): the glass neither swells, stretches nor taps. Nested pointer input sees the event first.
         if (down.isConsumed || state.exempt == down.id) return@awaitEachGesture
-        state.down()
+        state.down(down.position)
+        // The finger's speed when it lets go is carried into the spring back.
+        val tracker = VelocityTracker()
+        tracker.addPosition(down.uptimeMillis, down.position)
         val slop = viewConfiguration.touchSlop
         val longPressAt = down.uptimeMillis + viewConfiguration.longPressTimeoutMillis
         var moved = false
@@ -180,6 +214,7 @@ public fun Modifier.glassPullGesture(
                 break
             }
             last = change.position
+            tracker.addPosition(change.uptimeMillis, change.position)
             if (!moved && change.isConsumed) {
                 childOwns = true
                 break
@@ -199,13 +234,14 @@ public fun Modifier.glassPullGesture(
                 moved = true
             }
             if (moved) {
-                state.drag(delta)
+                state.drag(delta, change.position)
                 change.consume()
             }
         }
         val inside = last.x >= -slop && last.y >= -slop &&
             last.x <= size.width + slop && last.y <= size.height + slop
-        state.release()
+        val speed = if (moved && !childOwns) tracker.calculateVelocity().let { Offset(it.x, it.y) } else Offset.Zero
+        state.release(speed)
         if (onTap != null && inside && !childOwns && state.noTap != down.id) onTap()
     }
 }

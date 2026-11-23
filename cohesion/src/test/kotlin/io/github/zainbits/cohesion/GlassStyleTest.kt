@@ -41,6 +41,29 @@ class GlassStyleTest {
     }
 
     @Test
+    fun highContrastTintsMoreAndOutlinesStronger() {
+        for (dark in listOf(false, true)) {
+            val normal = GlassStyle.forClarity(0.2f, dark)
+            val high = GlassStyle.forClarity(0.2f, dark, contrast = 1f)
+            assertTrue(high.tintAlpha > normal.tintAlpha)
+            assertTrue(high.edgeAlpha >= GlassStyle.CONTRAST_EDGE)
+            assertTrue(high.edgeWidth > normal.edgeWidth)
+            // Normal contrast changes nothing.
+            assertEquals(normal, GlassStyle.forClarity(0.2f, dark, contrast = 0f))
+        }
+        // Fully tinted stays fully tinted.
+        assertEquals(1f, GlassStyle.forClarity(1f, false, contrast = 1f).tintAlpha)
+    }
+
+    @Test
+    fun glassCastsASoftShadow() {
+        assertTrue(GlassStyle.forClarity(0.3f, false).shadow > 0f)
+        assertTrue(GlassStyle.forClarity(0.3f, true).shadow > 0f)
+        // A plain style (a flat button) has none.
+        assertEquals(0f, GlassStyle().shadow)
+    }
+
+    @Test
     fun clarityIsClamped() {
         assertEquals(GlassStyle.forClarity(0f, false), GlassStyle.forClarity(-3f, false))
         assertEquals(GlassStyle.forClarity(1f, false), GlassStyle.forClarity(9f, false))

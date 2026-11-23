@@ -13,6 +13,7 @@ public class RoundRectScene : GlassScene() {
     private val rects = FloatArray(MAX * 4)
     private val radii = FloatArray(MAX)
     private val deform = FloatArray(MAX * 4)
+    private val lifts = FloatArray(MAX)
     private var count = 0
     private var bandPx = 1f
     private var mergePx = 0f
@@ -21,6 +22,7 @@ public class RoundRectScene : GlassScene() {
     private val lastRects = FloatArray(MAX * 4)
     private val lastRadii = FloatArray(MAX)
     private val lastDeform = FloatArray(MAX * 4)
+    private val lastLifts = FloatArray(MAX)
     private var lastCount = -1
     private var lastBand = -1f
     private var lastMerge = -1f
@@ -38,15 +40,18 @@ public class RoundRectScene : GlassScene() {
         this.bandPx = bandPx.coerceAtLeast(1f)
         this.mergePx = mergePx.coerceAtLeast(0f)
         identity(deform)
+        lifts.fill(0f)
     }
 
     /**
      * Adds a rectangle at (x, y) of size (w, h) with corner [radius], in the element's pixels,
-     * stretched by [stretch] along (ux, uy) and by [squash] across it. Ignored past [MAX].
+     * stretched by [stretch] along (ux, uy) and by [squash] across it, lifted by [lift] (a press:
+     * [GlassPullState.lift]). Ignored past [MAX].
      */
     public fun add(
         x: Float, y: Float, w: Float, h: Float, radius: Float,
         ux: Float = 1f, uy: Float = 0f, stretch: Float = 1f, squash: Float = 1f,
+        lift: Float = 0f,
     ) {
         if (count >= MAX || w <= 0f || h <= 0f) return
         val i = count * 4
@@ -59,6 +64,7 @@ public class RoundRectScene : GlassScene() {
         deform[i + 1] = uy
         deform[i + 2] = stretch
         deform[i + 3] = squash
+        lifts[count] = lift
         count++
     }
 
@@ -68,6 +74,7 @@ public class RoundRectScene : GlassScene() {
         rects.copyInto(lastRects)
         radii.copyInto(lastRadii)
         deform.copyInto(lastDeform)
+        lifts.copyInto(lastLifts)
         lastCount = count
         lastBand = bandPx
         lastMerge = mergePx
@@ -84,12 +91,16 @@ public class RoundRectScene : GlassScene() {
         for (i in 0 until count * 4) {
             if (rects[i] != lastRects[i] || deform[i] != lastDeform[i]) return false
         }
-        for (i in 0 until count) if (radii[i] != lastRadii[i]) return false
+        for (i in 0 until count) if (radii[i] != lastRadii[i] || lifts[i] != lastLifts[i]) return false
         return true
     }
 
+    override val hasLift: Boolean get() = true
+
     override val agsl: String = """
 uniform float uCount;
+uniform float uLift[$MAX];
+uniform float uLiftMax;
 uniform float uRects[${MAX * 4}];
 uniform float uRadii[$MAX];
 uniform float uDeform[${MAX * 4}];
@@ -108,6 +119,25 @@ float3 scene(float2 p) {
     }
     return acc;
 }
+// The lift of the piece p is in (or nearest to). Nothing to look up while no piece is pressed.
+half sceneLift(float2 p) {
+    if (uLiftMax <= 0.0) {
+        return 0.0;
+    }
+    float best = 100000.0;
+    float l = 0.0;
+    for (int i = 0; i < $MAX; i++) {
+        if (float(i) < uCount) {
+            float3 s = sdRoundRect(p, uRects[i * 4], uRects[i * 4 + 1], uRects[i * 4 + 2], uRects[i * 4 + 3],
+                uRadii[i], uShapeBand, uDeform[i * 4], uDeform[i * 4 + 1], uDeform[i * 4 + 2], uDeform[i * 4 + 3]);
+            if (s.x < best) {
+                best = s.x;
+                l = uLift[i];
+            }
+        }
+    }
+    return half(l);
+}
 """
 
     override fun applyUniforms(shader: RuntimeShader) {
@@ -115,6 +145,10 @@ float3 scene(float2 p) {
         shader.setFloatUniform("uRects", rects)
         shader.setFloatUniform("uRadii", radii)
         shader.setFloatUniform("uDeform", deform)
+        shader.setFloatUniform("uLift", lifts)
+        var most = 0f
+        for (i in 0 until count) if (lifts[i] > most) most = lifts[i]
+        shader.setFloatUniform("uLiftMax", most)
         shader.setFloatUniform("uMerge", mergePx)
         shader.setFloatUniform("uShapeBand", bandPx)
     }

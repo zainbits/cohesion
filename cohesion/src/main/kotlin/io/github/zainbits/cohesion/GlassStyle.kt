@@ -31,6 +31,10 @@ import androidx.compose.ui.unit.lerp
  * @property lightDistance how far away the [evenLight] corner lights are: 0 = close, the highlight stays on the
  *   corners; 1 = far, it spreads evenly along the whole edge.
  * @property dispersion colour fringing at the edge (costs two extra samples per pixel when > 0).
+ * @property shadow strength of the soft shadow just outside the glass, which lifts it off the content
+ *   (a little stronger below, as if lit from above); 0 = none.
+ * @property shadowRadius width of the shadow's soft edge (its penumbra): it fades out half of this past its outline.
+ * @property shadowOffset how far down the shadow sits, as if lit from above.
  * @property solidColor what is drawn instead of glass in [GlassMode.Solid].
  * @property accentTint tint where a scene marks an accent (for example a selected tab);
  *   unspecified = same as [tint].
@@ -55,6 +59,9 @@ public data class GlassStyle(
     val reflection: Float = 0f,
     val evenLight: Float = 0f,
     val lightDistance: Float = 0.5f,
+    val shadow: Float = 0f,
+    val shadowRadius: Dp = 12.dp,
+    val shadowOffset: Dp = 4.dp,
     val solidColor: Color = Color(0xF2F4F4F6),
     val accentTint: Color = Color.Unspecified,
     val accentTintAlpha: Float = 0.35f,
@@ -75,9 +82,14 @@ public data class GlassStyle(
          *
          * The veil ([TINT]) and the light border ([EDGE_LIGHT_LIGHT], [EDGE_LIGHT_DARK]) are fixed: the owner
          * tuned them by eye, and no app changes them.
+         *
+         * @param contrast the phone's accessibility contrast (0 = normal, 1 = high; [rememberGlassContrast]):
+         *   the glass gets more tinted (more of the way from [clarity] to fully tinted) and a stronger, wider
+         *   outline, like iOS with Increase Contrast or Reduce Transparency.
          */
-        public fun forClarity(clarity: Float, dark: Boolean): GlassStyle {
-            val c = clarity.coerceIn(0f, 1f)
+        public fun forClarity(clarity: Float, dark: Boolean, contrast: Float = 0f): GlassStyle {
+            val k = contrast.coerceIn(0f, 1f)
+            val c = (clarity.coerceIn(0f, 1f) + (1f - clarity.coerceIn(0f, 1f)) * CONTRAST_CLARITY * k).coerceIn(0f, 1f)
             val tintColor = if (dark) Color(0xFF101012) else Color(0xFFFFFFFF)
             // The first part of the slider fades in the colour boost from nothing.
             val r = (c / 0.15f).coerceAtMost(1f)
@@ -105,11 +117,15 @@ public data class GlassStyle(
                 lightAngle = -120f,
                 dispersion = 0f,
                 edge = if (dark) Color.White else Color.Black,
-                edgeAlpha = (if (dark) 0.24f else 0.22f) * edgeScale,
-                edgeWidth = 1.5.dp,
+                edgeAlpha = maxOf((if (dark) 0.24f else 0.22f) * edgeScale, CONTRAST_EDGE * k),
+                edgeWidth = lerp(1.5.dp, 2.dp, k),
                 reflection = lerp(0.55f, 0.15f, c),
                 evenLight = 1f,
                 lightDistance = 1f,
+                // A faint lift off the content: barely there on white, a soft darkening on dark content.
+                shadow = if (dark) 0.30f else 0.12f,
+                shadowRadius = 28.dp,
+                shadowOffset = 4.dp,
                 solidColor = lerp(tintColor, if (dark) Color.Black else Color.White, 0.04f).copy(alpha = 0.95f),
             )
         }
@@ -122,6 +138,12 @@ public data class GlassStyle(
 
         /** Brightness of the light border on a dark theme: just a hint. */
         public const val EDGE_LIGHT_DARK: Float = 0.05f
+
+        /** At full accessibility contrast, how much of the way from the clarity setting to fully tinted. */
+        public const val CONTRAST_CLARITY: Float = 0.6f
+
+        /** At full accessibility contrast, the least strength of the outline. */
+        public const val CONTRAST_EDGE: Float = 0.45f
 
         private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
     }

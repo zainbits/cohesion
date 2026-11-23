@@ -49,6 +49,9 @@ public class GlassPass(private val scene: GlassScene) {
     private var effectDs = 1
     private var effectTaps = false
     private var effectMargin = 0
+    private var effectTouch = Offset.Unspecified
+    private var effectSource = IntSize.Zero
+    private var effectOrigin = Offset.Unspecified
 
     private var recordedOrigin = Offset.Unspecified
     private var recordedSize = IntSize.Zero
@@ -74,7 +77,9 @@ public class GlassPass(private val scene: GlassScene) {
     /**
      * Draws the scene as glass over [backdrop], whose content sits at [offset] relative to this
      * element ([GlassBackdrop.positionOf]). [margin] lets the pass extend past the element so a
-     * stretched shape is not cut off.
+     * stretched shape is not cut off; the pass always reaches a little past the shape anyway, so the edge
+     * reflects and blurs what is really around it and the shadow has room. [touch] is where a finger
+     * presses (this element's pixels; the scene's lift says which piece), for the light under it.
      */
     public fun DrawScope.draw(
         context: GraphicsContext,
@@ -83,6 +88,7 @@ public class GlassPass(private val scene: GlassScene) {
         style: GlassStyle,
         mode: GlassMode,
         margin: Dp = 0.dp,
+        touch: Offset = Offset.Unspecified,
     ) {
         if (mode == GlassMode.Solid || !attached || offset == Offset.Unspecified) {
             drawSolid(style, margin)
@@ -95,7 +101,7 @@ public class GlassPass(private val scene: GlassScene) {
         val tracing = Trace.isEnabled()
         if (tracing) Trace.beginSection("Cohesion#glass")
         try {
-            drawPass(context, backdrop.layer, offset, style, mode, margin, layer)
+            drawPass(context, backdrop.layer, backdrop.size, offset, style, mode, margin, touch, layer)
         } finally {
             if (tracing) Trace.endSection()
         }
@@ -104,16 +110,19 @@ public class GlassPass(private val scene: GlassScene) {
     private fun DrawScope.drawPass(
         context: GraphicsContext,
         source: GraphicsLayer,
+        sourceSize: IntSize,
         offset: Offset,
         style: GlassStyle,
         mode: GlassMode,
         margin: Dp,
+        touch: Offset,
         layer: GraphicsLayer,
     ) {
-        val m = ceil(margin.toPx()).toInt()
+        val blurPx = if (mode == GlassMode.NoBlur) 0f else style.blurRadius.toPx()
+        val m = ceil(maxOf(margin.toPx(), reach(style, blurPx))).toInt()
         val mf = m.toFloat()
         val intSize = IntSize(size.width.toInt() + 2 * m, size.height.toInt() + 2 * m)
-        val blurPx = if (mode == GlassMode.NoBlur) 0f else style.blurRadius.toPx()
+        val origin = Offset(offset.x - mf, offset.y - mf)
         val taps = blurPx >= 0.5f && CohesionDebug.blurMethod == 1
         val ds = when {
             blurPx < 0.5f -> 1
@@ -122,10 +131,21 @@ public class GlassPass(private val scene: GlassScene) {
             else -> 1
         }
         if (scene.version != effectVersion || intSize != effectSize || density != effectDensity ||
-            style != effectStyle || mode != effectMode || ds != effectDs || taps != effectTaps || m != effectMargin
+            style != effectStyle || mode != effectMode || ds != effectDs || taps != effectTaps || m != effectMargin ||
+            touch != effectTouch || sourceSize != effectSource || origin != effectOrigin
         ) {
             val shader = Shaders.glass(scene)
             applyGlassUniforms(shader, intSize, mf, style, if (taps) blurPx else 0f)
+            // Where the content ends, in the pass's pixels: samples stay inside it (past it there is nothing).
+            if (sourceSize.width > 0 && sourceSize.height > 0) {
+                shader.setFloatUniform("uGSrcMin", -origin.x, -origin.y)
+                shader.setFloatUniform("uGSrcMax", sourceSize.width - origin.x, sourceSize.height - origin.y)
+            } else {
+                shader.setFloatUniform("uGSrcMin", -1e6f, -1e6f)
+                shader.setFloatUniform("uGSrcMax", 1e6f, 1e6f)
+            }
+            if (touch != Offset.Unspecified) shader.setFloatUniform("uGTouch", touch.x, touch.y) else shader.setFloatUniform("uGTouch", -1e6f, -1e6f)
+            shader.setFloatUniform("uGTouchR", TOUCH_GLOW_RADIUS.toPx())
             scene.applyUniforms(shader)
             CohesionDebug.effectBuilds++
             val lens = RenderEffect.createRuntimeShaderEffect(shader, "content")
@@ -159,9 +179,11 @@ public class GlassPass(private val scene: GlassScene) {
             effectDs = ds
             effectTaps = taps
             effectMargin = m
+            effectTouch = touch
+            effectSource = sourceSize
+            effectOrigin = origin
         }
 
-        val origin = Offset(offset.x - mf, offset.y - mf)
         if (origin != recordedOrigin || intSize != recordedSize || source !== recordedSource) {
             val bl = blurLayer
             if (ds > 1 && bl != null) {
@@ -195,6 +217,9 @@ public class GlassPass(private val scene: GlassScene) {
      */
     public fun DrawScope.drawSolid(style: GlassStyle, margin: Dp = 0.dp) {
         val shader = Shaders.solid(scene)
+        shader.setFloatUniform("uGShadow", style.shadow.coerceIn(0f, 1f))
+        shader.setFloatUniform("uGShadowR", style.shadowRadius.toPx().coerceAtLeast(1f))
+        shader.setFloatUniform("uGShadowDy", style.shadowOffset.toPx())
         shader.setColorUniform("uGSolid", style.solidColor.toArgb())
         val accent = if (style.accentSolidColor.isSpecified) style.accentSolidColor else style.solidColor
         shader.setColorUniform("uGSolid2", accent.toArgb())
@@ -204,7 +229,8 @@ public class GlassPass(private val scene: GlassScene) {
             solidBrush = it
             solidShader = shader
         }
-        val m = margin.toPx()
+        // Room for the shadow past the shape.
+        val m = maxOf(margin.toPx(), shadowReach(style))
         drawRect(brush, topLeft = Offset(-m, -m), size = Size(size.width + 2 * m, size.height + 2 * m))
     }
 
@@ -217,6 +243,19 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setFloatUniform("uGEdgeLight", toward * cos(a).toFloat(), toward * sin(a).toFloat())
         shader.setFloatUniform("uGEven", style.evenLight.coerceIn(0f, 1f))
     }
+
+    /**
+     * How far past the shape the pass must reach (px): the edge reflection looks out about five edge widths,
+     * the shadow [shadowReach], and the blur needs content beyond both. At most [MAX_REACH].
+     */
+    private fun DrawScope.reach(style: GlassStyle, blurPx: Float): Float {
+        val look = maxOf(style.edgeWidth.toPx() * 5f, shadowReach(style))
+        return minOf(look + blurPx + 1f, MAX_REACH.toPx())
+    }
+
+    /** How far the shadow reaches past the shape: half its penumbra past its outline, which sits [GlassStyle.shadowOffset] down. */
+    private fun DrawScope.shadowReach(style: GlassStyle): Float =
+        if (style.shadow > 0f) style.shadowRadius.toPx() / 2f + style.shadowOffset.toPx() + 1f else 0f
 
     private var solidBrush: ShaderBrush? = null
     private var solidShader: RuntimeShader? = null
@@ -246,6 +285,17 @@ public class GlassPass(private val scene: GlassScene) {
         shader.setFloatUniform("uGCornerK", 4f * near * near)
         shader.setFloatUniform("uGBlur", tapBlur)
         shader.setFloatUniform("uGTaps", CohesionDebug.blurTaps.coerceIn(4, 32).toFloat())
+        shader.setFloatUniform("uGShadow", style.shadow.coerceIn(0f, 1f))
+        shader.setFloatUniform("uGShadowR", style.shadowRadius.toPx().coerceAtLeast(1f))
+        shader.setFloatUniform("uGShadowDy", style.shadowOffset.toPx())
+    }
+
+    private companion object {
+        /** Size of the light under a pressing finger. */
+        val TOUCH_GLOW_RADIUS = 48.dp
+
+        /** Furthest the pass reaches past its shape. */
+        val MAX_REACH = 48.dp
     }
 }
 
@@ -255,7 +305,7 @@ private object Shaders {
     private val solid = HashMap<String, RuntimeShader>()
 
     fun glass(scene: GlassScene): RuntimeShader = glass.getOrPut(scene.agsl) {
-        RuntimeShader(GLASS_HEADER + scene.agsl + accentDefault(scene) + GLASS_MAIN)
+        RuntimeShader(GLASS_HEADER + scene.agsl + accentDefault(scene) + liftDefault(scene) + GLASS_MAIN)
     }
 
     fun solid(scene: GlassScene): RuntimeShader = solid.getOrPut(scene.agsl) {
@@ -264,6 +314,9 @@ private object Shaders {
 
     private fun accentDefault(scene: GlassScene) =
         if (scene.hasAccent) "" else "\nhalf sceneAccent(float2 p) { return 0.0; }\n"
+
+    private fun liftDefault(scene: GlassScene) =
+        if (scene.hasLift) "" else "\nhalf sceneLift(float2 p) { return 0.0; }\n"
 }
 
 private const val GLASS_HEADER = """
@@ -287,9 +340,39 @@ uniform float uGReflect;
 uniform float uGCornerK;
 uniform float uGBlur;
 uniform float uGTaps;
+uniform float2 uGSrcMin;
+uniform float2 uGSrcMax;
+uniform float2 uGTouch;
+uniform float uGTouchR;
+uniform float uGShadow;
+uniform float uGShadowR;
+uniform float uGShadowDy;
 
+// Inside the pass, and inside the content it shows (past the content's edge there is nothing to see).
 float2 clampIn(float2 s) {
-    return clamp(s, float2(0.5), uGSize - 0.5);
+    return clamp(s, max(float2(0.5), uGSrcMin + 0.5), min(uGSize - 0.5, uGSrcMax - 0.5));
+}
+
+// The soft shadow the glass casts on the content below it. d: distance out from the shape (n its outward
+// normal), xy for the dither.
+// - Light from above shifts the shadow down by uGShadowDy: the shape moved down by dy is nearer below it and
+//   further above it (to first order, d - dy * n.y).
+// - A soft (area) light gives a penumbra centred on the shadow's outline: half strength there, rising under the
+//   shape, falling to exactly nothing uGShadowR / 2 outside it, with zero slope at both ends (smoothstep, close
+//   to the error function of a real penumbra), so the shadow has no visible end.
+// - A dither of under one colour level per pixel keeps such a faint gradient from banding into rings.
+half4 shadowAt(float d, float2 n, float2 xy) {
+    if (uGShadow <= 0.0) {
+        return half4(0.0);
+    }
+    float x = clamp((d - uGShadowDy * n.y) / uGShadowR + 0.5, 0.0, 1.0);
+    float f = 1.0 - x * x * (3.0 - 2.0 * x);
+    if (f <= 0.0) {
+        return half4(0.0);
+    }
+    float h = fract(sin(dot(xy, float2(12.9898, 78.233))) * 43758.5453);
+    float a = max(uGShadow * f + (h - 0.5) / 255.0, 0.0);
+    return half4(0.0, 0.0, 0.0, half(a));
 }
 
 // Optional single-pass blur (CohesionDebug.blurMethod = 1): Vogel-disk taps with Gaussian weights
@@ -317,13 +400,17 @@ half4 blurAt(float2 s) {
 """
 
 private const val GLASS_MAIN = """
-void edgeShade(inout half4 c, float inside, float2 n) {
-    float q = clamp(1.0 - inside / uGEdgeWidth, 0.0, 1.0);
-    // All the way round, strongest on one side of the light; concentrated at the very border.
-    float side = mix(mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight))), 0.8, uGEven);
-    half e = half(q * q * side) * uGEdge.a;
-    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
-}
+// The surface's steepest tilt, at the rim: 75 degrees.
+const float SIN_MAX = 0.9659258;
+const float COS_MAX = 0.2588190;
+// Where the highlight peaks: 71 degrees, just inside the rim (a ring of light at 142 degrees from overhead).
+const float SIN_PEAK = 0.9455186;
+const float COS_PEAK = 0.3255682;
+// How glossy the surface is: half strength about 10 degrees of tilt either side of the peak, which keeps the
+// highlight within about the outer 2 dp of the band.
+const float SHININESS = 48.0;
+// Brightness of the highlight per unit of uGRim, set so the locked edge light keeps its tuned brightness.
+const float RIM_GAIN = 1.3;
 
 half4 main(float2 xy) {
     float2 p = xy - uGOrigin;
@@ -332,13 +419,21 @@ half4 main(float2 xy) {
     float2 n = sc.yz;
     float cover = clamp(0.5 - d, 0.0, 1.0);
     if (cover <= 0.0) {
-        return half4(0.0);
+        return shadowAt(d, n, xy);
     }
     float inside = -d;
 
-    // Lens: 0 inside the band, rising to uGDepth at the edge along a circular profile.
+    // Pressed, the piece lifts (iOS's Liquid Lens): it bends more, its rim brightens, and the glass lights up
+    // around the finger.
+    float lift = float(sceneLift(p));
+    float2 tv = p - uGTouch;
+    float under = lift > 0.0 ? lift * exp(-dot(tv, tv) / (2.0 * uGTouchR * uGTouchR)) : 0.0;
+
+    // Lens: 0 inside the band, rising to uGDepth at the edge along a circular profile. Light hitting the
+    // curved top bends toward the middle (Snell's law for a dome resting on the content), so the rim shows
+    // content from further in, magnified.
     float t = clamp(1.0 - inside / uGBand, 0.0, 1.0);
-    float bend = uGDepth * (1.0 - sqrt(1.0 - t * t));
+    float bend = uGDepth * (1.0 + 0.35 * lift) * (1.0 - sqrt(1.0 - t * t));
     float2 s = clampIn(xy - n * bend);
 
     half4 c = blurAt(s);
@@ -355,41 +450,56 @@ half4 main(float2 xy) {
     c.rgb = mix(c.rgb, tint.rgb, tint.a);
     c.a = mix(c.a, 1.0, tint.a);
 
-    // Reflection: near the border the glass mirrors what lies just outside it (a Fresnel falloff), so its
-    // edge picks up the colours around it instead of reading as a drawn line.
-    float rq = clamp(1.0 - inside / (uGEdgeWidth * 4.0), 0.0, 1.0);
-    if (uGReflect > 0.0 && rq > 0.0) {
+    // One surface. The lens's curve sets how far the glass tilts at every point: flat inside the band, steepening
+    // to THETA_MAX at the rim (sin(tilt) = t * sin(THETA_MAX): a pebble whose edge is steep but not vertical).
+    // Reflection, the highlight, the edge shading and the pebble shading all follow from that one tilt, so they
+    // blend into each other the way they do on a real curved edge instead of reading as separate drawn bands.
+    float sinT = t * SIN_MAX;
+    float cosT = sqrt(1.0 - sinT * sinT);
+    // How steep the surface is: 0 flat, 1 at the rim.
+    float steep = (1.0 - cosT) / (1.0 - COS_MAX);
+
+    // Fresnel (Schlick's approximation, glass F0 = 0.04): reflectance climbs from almost nothing where the glass is
+    // flat to strong where it is steep, as (1 - cos(tilt))^5. uGReflect is the reflectance at the rim. What it
+    // reflects is what lies just outside the glass, mirrored across its edge.
+    float fr = pow(1.0 - cosT, 5.0) / pow(1.0 - COS_MAX, 5.0);
+    if (uGReflect > 0.0 && fr > 0.002) {
         half4 r = blurAt(clampIn(xy + n * (2.0 * inside + uGEdgeWidth)));
         half rl = dot(r.rgb, half3(0.2126, 0.7152, 0.0722));
         r.rgb = clamp(mix(half3(rl), r.rgb, half(1.3)), 0.0, r.a);
-        c = mix(c, r, half(uGReflect * rq * rq));
+        c = mix(c, r, half(uGReflect * fr));
     }
 
-    // Light catching the rim: strongest where the edge faces the light, softer opposite, with a sharp
-    // highlight where it faces the light squarely.
-    // uGEven blends one light (uGLight) into four equal ones from the corners: every corner then catches the
-    // same highlight and the straight sides less, by how far away the lights are (uGCornerK).
+    // Highlight (Blinn-Phong): light low around the glass reaches the eye off the surface where it tilts half way
+    // toward the light, so the highlight is a soft band just inside the rim (peak at the PEAK tilt) whose width
+    // follows the curve (cos(tilt - THETA_PEAK)^SHININESS), not a band of fixed width.
+    float spec = pow(max(cosT * COS_PEAK + sinT * SIN_PEAK, 0.0), SHININESS);
+    // Where the light comes from: alike all round with even light (uGEven), else mostly the lit side. With even
+    // light, uGCornerK (how close the corner lights are) can still favour the corners.
     float corner = pow((abs(n.x) + abs(n.y)) * 0.70710678, uGCornerK);
     float facing = mix(dot(n, uGLight), corner, uGEven);
     float lit = pow(max(facing, 0.0), 1.5) + (1.0 - uGEven) * 0.45 * pow(max(-facing, 0.0), 1.5);
-    float rim = clamp(1.0 - inside / uGRimWidth, 0.0, 1.0);
-    float sq = clamp(1.0 - inside / (uGRimWidth * 2.5), 0.0, 1.0);
-    // The sharp highlight: one light gives a hot spot; with even light it must not pick out the corners.
-    float spec = pow(max(facing, 0.0), mix(10.0, 1.0, uGEven)) * sq * sq;
-    float glow = uGRim * (rim * lit + 0.8 * spec + 0.10 * t * t);
+    float glow = uGRim * RIM_GAIN * lit * spec * (1.0 + 0.3 * lift);
+    // The light under the finger: a broad, soft glow, a little stronger where the surface curves.
+    glow += 0.14 * under + 0.18 * under * steep;
     c.rgb = c.rgb + (c.a - c.rgb) * half(clamp(glow, 0.0, 1.0));
 
-    // Edge shading, last so the highlight cannot wash it out on white: the bend at the border darkens it
-    // (lightens it on a dark theme), more on one side of the light, fading inwards. With the highlight just
-    // inside it on the lit side, it reads as a curved, reflective edge rather than a drawn border.
-    edgeShade(c, inside, n);
+    // Edge shading, last so the highlight cannot wash it out on white: where the glass is steepest, light reaching
+    // the eye has been bent from further away and crossed more glass, so the rim reads darker (lighter on a dark
+    // theme). It follows the tilt (steep^k: strongest at the rim, fading in about an edge width), more on one side
+    // of the light unless the light is even.
+    float k = clamp(uGBand / uGEdgeWidth * 0.45, 2.0, 12.0);
+    float side = mix(mix(0.5, 1.0, smoothstep(-0.6, 0.9, dot(n, uGEdgeLight))), 0.8, uGEven);
+    half e = half(pow(steep, k) * side) * uGEdge.a;
+    c = c * (1.0 - e) + half4(uGEdge.rgb, 1.0) * e;
 
-    // Pebble shading: across the bend the surface tilts, so it catches a soft gradient of the edge colour
-    // on one side (grey away from the light on a light theme, a light sheen toward it on a dark one).
-    half pe = half(t * t * mix(smoothstep(-0.2, 1.0, dot(n, uGEdgeLight)), 0.45, uGEven) * 0.45) * uGEdge.a;
+    // Pebble shading (diffuse): the more the surface turns away from the light overhead, the more it takes on the
+    // edge colour (grey on a light theme, a light sheen on a dark one).
+    half pe = half(steep * mix(smoothstep(-0.2, 1.0, dot(n, uGEdgeLight)), 0.45, uGEven) * 0.45) * uGEdge.a;
     c = c * (1.0 - pe) + half4(uGEdge.rgb, 1.0) * pe;
 
-    return c * half(cover);
+    // Anti-aliased border: the part of the pixel outside the shape gets the shadow.
+    return c * half(cover) + shadowAt(max(d, 0.0), n, xy) * half(1.0 - cover);
 }
 """
 
@@ -400,6 +510,31 @@ layout(color) uniform half4 uGEdge;
 uniform float uGEdgeWidth;
 uniform float2 uGEdgeLight;
 uniform float uGEven;
+uniform float uGShadow;
+uniform float uGShadowR;
+uniform float uGShadowDy;
+
+// The soft shadow the glass casts on the content below it. d: distance out from the shape (n its outward
+// normal), xy for the dither.
+// - Light from above shifts the shadow down by uGShadowDy: the shape moved down by dy is nearer below it and
+//   further above it (to first order, d - dy * n.y).
+// - A soft (area) light gives a penumbra centred on the shadow's outline: half strength there, rising under the
+//   shape, falling to exactly nothing uGShadowR / 2 outside it, with zero slope at both ends (smoothstep, close
+//   to the error function of a real penumbra), so the shadow has no visible end.
+// - A dither of under one colour level per pixel keeps such a faint gradient from banding into rings.
+half4 shadowAt(float d, float2 n, float2 xy) {
+    if (uGShadow <= 0.0) {
+        return half4(0.0);
+    }
+    float x = clamp((d - uGShadowDy * n.y) / uGShadowR + 0.5, 0.0, 1.0);
+    float f = 1.0 - x * x * (3.0 - 2.0 * x);
+    if (f <= 0.0) {
+        return half4(0.0);
+    }
+    float h = fract(sin(dot(xy, float2(12.9898, 78.233))) * 43758.5453);
+    float a = max(uGShadow * f + (h - 0.5) / 255.0, 0.0);
+    return half4(0.0, 0.0, 0.0, half(a));
+}
 """
 
 private const val SOLID_MAIN = """
@@ -414,8 +549,11 @@ void edgeShade(inout half4 c, float inside, float2 n) {
 half4 main(float2 xy) {
     float3 sc = scene(xy);
     float cover = clamp(0.5 - sc.x, 0.0, 1.0);
+    if (cover <= 0.0) {
+        return shadowAt(sc.x, sc.yz, xy);
+    }
     half4 c = mix(uGSolid, uGSolid2, sceneAccent(xy));
     edgeShade(c, -sc.x, sc.yz);
-    return c * half(cover);
+    return c * half(cover) + shadowAt(max(sc.x, 0.0), sc.yz, xy) * half(1.0 - cover);
 }
 """

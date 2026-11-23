@@ -12,13 +12,16 @@ import android.graphics.RuntimeShader
  *
  * where the distance is negative inside and the normal points outward. When [hasAccent] is true it
  * must also define `half sceneAccent(float2 p)` (0..1), which blends the tint toward
- * [GlassStyle.accentTint] (for example a selected tab).
+ * [GlassStyle.accentTint] (for example a selected tab). When [hasLift] is true it must define
+ * `half sceneLift(float2 p)` (0..about 1): how pressed the piece under p is, so only that piece bends more
+ * and lights up under the finger.
  *
  * Snippets for common outlines are in [CohesionAgsl].
  */
 public abstract class GlassScene {
     public abstract val agsl: String
     public open val hasAccent: Boolean get() = false
+    public open val hasLift: Boolean get() = false
 
     /**
      * Bump whenever the values [applyUniforms] writes change; a pass rebuilds its effect only then.
